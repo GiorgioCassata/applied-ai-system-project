@@ -22,7 +22,6 @@ def main() -> None:
         "energy": 0.72,
         "valence": 0.78,
         "tempo_bpm": 115,
-        "danceability": 0.75,
         "likes_acoustic": False,
     }
 

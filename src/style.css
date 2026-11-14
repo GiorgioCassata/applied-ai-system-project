@@ -1,0 +1,1039 @@
+:root { --green: #17A173; --green-hover: #1BBB86; --card: #181818; --card-hover: #282828; }
+
+.stApp { background: linear-gradient(180deg, #1f2a1b 0%, #121212 220px); }
+header[data-testid="stHeader"] { background: transparent; }
+/* Streamlit's own header is a fixed, transparent 60px strip that sits over the page
+   and swallows clicks just below our (shorter) top bar. Our bar replaces it, so let
+   clicks pass straight through it and keep it no taller than the bar. */
+header[data-testid="stHeader"], [data-testid="stAppHeader"], [data-testid="stHeader"] {
+    height: var(--top-h) !important; min-height: 0 !important; pointer-events: none !important;
+}
+.block-container { padding-top: 2rem; max-width: 1200px; }
+
+h1, h2, h3 { font-weight: 800 !important; letter-spacing: -0.02em; }
+.brand { font-size: 2rem; font-weight: 900; letter-spacing: -0.04em; }
+.brand span { color: var(--green); }
+.brand-icon { width: 1em; height: 1em; fill: #fff; margin-right: 0.3em; flex: none; }
+.greeting { font-size: 2rem; font-weight: 1000; margin: 0.5rem 0 1rem; }
+
+/* Left panel: fixed black "Your Library" panel (not collapsible) */
+:root { --player-h: 64px; --top-h: 50px; --panel-w: 18rem; }
+[class*="st-key-left_panel"] {
+    position: fixed; left: 0; top: var(--top-h); bottom: var(--player-h);
+    width: var(--panel-w); z-index: 1000000;
+    background: #181818; border-right: 1px solid #282828; padding: 1rem 1rem 0;
+    overflow: hidden;
+}
+[class*="st-key-left_panel"] .stButton > button {
+    background: transparent; border: none; color: #b3b3b3; text-align: left;
+    display: flex; align-items: center; justify-content: flex-start; gap: 12px;
+    border-radius: 6px; font-weight: 500; padding: 4px 8px;
+}
+/* Round album-art bubble on the left of every library item. The image itself
+   is set per item by a generated <style> block (see art_keys below). */
+[class*="st-key-left_panel"] .stButton > button::before {
+    content: ""; flex: none; width: 40px; height: 40px; border-radius: 50%;
+    background: #282828 center / cover no-repeat;
+    /* --art is set per item by the lazy-load script; items with no art keep this
+       gray question-mark fallback */
+    background-image: var(--art, url("assets/icons/art-missing.svg"));
+}
+/* Hovering a library item dims its bubble and shows a white play icon on it (clicking
+   the bubble plays the item, see LIB_ART_JS). The images are stacked: icon, dimmer, art. */
+[class*="st-key-left_panel"] .stButton > button:hover::before {
+    background-image:
+        url("assets/icons/play-white.svg"),
+        linear-gradient(rgba(0,0,0,.5), rgba(0,0,0,.5)),
+        var(--art, none);
+    background-size: 24px 24px, cover, cover;
+    background-position: center, center, center;
+    background-repeat: no-repeat, no-repeat, no-repeat;
+}
+/* The "Play" buttons next to each library item exist only to be clicked by script */
+[class*="st-key-artist_play"], [class*="st-key-album_play"], [class*="st-key-playlist_play"] {
+    display: none !important;
+}
+/* Smaller "Your Library" title */
+[class*="st-key-lib_header"] h3 { font-size: 1.1rem !important; padding: 0 0 0.25rem; }
+/* Thin divider between your playlists and the automatic ones in the Playlists tab */
+.lib-divider { height: 1px; background: #333; margin: 4px 6px; }
+/* Names sit left-aligned right next to the art bubble. A long name wraps onto a second
+   line and is cut with an ellipsis after that (at most 2 lines). The button's label
+   wrapper (the div inside the button) is made to take all the room beside the bubble and
+   start at the left, otherwise Streamlit centres the text in a box as narrow as the text. */
+[class*="st-key-left_panel"] .stButton > button > div {
+    flex: 1 1 0; min-width: 0; justify-content: flex-start; text-align: left;
+}
+[class*="st-key-left_panel"] .stButton > button [data-testid="stMarkdownContainer"] {
+    flex: 1; min-width: 0; width: 100%; text-align: left;
+}
+[class*="st-key-left_panel"] .stButton > button p {
+    text-align: left; white-space: normal; overflow: hidden; line-height: 1.25;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow-wrap: anywhere;
+}
+[class*="st-key-left_panel"] .stButton > button:hover {
+    background: var(--card-hover); color: #fff;
+}
+/* Tabs as rounded bubbles (chips) with even spacing between them */
+[class*="st-key-left_panel"] [role="tablist"],
+[class*="st-key-left_panel"] [data-baseweb="tab-list"] { gap: 6px !important; padding: 2px 0 6px; }
+[class*="st-key-left_panel"] [data-testid="stTab"] {
+    background: #2a2a2a !important; border: none !important; border-radius: 999px !important;
+    padding: 5px 11px !important; margin: 0 !important; height: auto !important;
+    min-height: 0 !important; color: #fff !important; transition: background .15s;
+}
+/* Small enough that all three tabs fit the panel's width. The tab icons are resized with
+   font-size, width AND height together, which is how Streamlit sizes its icons. */
+[class*="st-key-left_panel"] [data-testid="stTab"] p {
+    color: inherit !important; font-size: 0.75rem; font-weight: 600;
+}
+[class*="st-key-left_panel"] [data-testid="stTab"] [data-testid="stIconMaterial"] {
+    font-size: 1rem !important; width: 1rem !important; height: 1rem !important;
+}
+[class*="st-key-left_panel"] [data-testid="stTab"]:hover {
+    background: #3a3a3a !important; color: #fff !important;
+}
+[class*="st-key-left_panel"] [data-testid="stTab"][aria-selected="true"] {
+    background: #fff !important; color: #000 !important;
+}
+/* The library lists scroll inside their own box, so the title, search and tabs
+   above them never move. Height leaves room for the pinned player bar. */
+[class*="st-key-lib_list"] {
+    height: calc(100vh - var(--player-h) - var(--top-h) - 340px) !important;
+    min-height: 200px;
+}
+/* Blank space at the end of each list so the last item can scroll clear of
+   whatever covers the bottom of the box (the player bar). Tune the height. */
+.list-spacer { height: 120px; }
+[class*="st-key-left_panel"] div[data-testid="stTextInput"] input {
+    padding: 0.4rem 2.4rem 0.4rem 0.9rem; font-size: 0.9rem;
+}
+/* Library search: x inside the right end of the pill (hidden while empty) and the
+   reworded "Press Enter to Search" hint (shown only once something is typed) */
+.st-key-lib_search_box { position: relative; }
+.st-key-lib_search_box .st-key-lib_search_clear {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: auto; z-index: 2;
+}
+.st-key-lib_search_box .st-key-lib_search_clear button {
+    background: transparent; border: none; color: #b3b3b3; width: 24px; height: 24px;
+    min-height: 0; padding: 0; border-radius: 50%;
+}
+.st-key-lib_search_box .st-key-lib_search_clear button:hover { background: #333; color: #fff; }
+.st-key-lib_search_box .st-key-lib_search_clear [data-testid="stIconMaterial"] { font-size: 1.1rem; color: inherit; }
+.st-key-lib_search_box:has(input:placeholder-shown) .st-key-lib_search_clear,
+.st-key-lib_search_box:has(input:placeholder-shown) [data-testid="InputInstructions"] { display: none; }
+.st-key-lib_search_box [data-testid="InputInstructions"] {
+    font-size: 0 !important; transform: translateY(-3px); margin-right: 28px;
+}
+.st-key-lib_search_box [data-testid="InputInstructions"]::after {
+    content: "↵"; font-size: 0.75rem; color: #b3b3b3;
+}
+/* No underline under the selected tab (the pill itself shows the selection) */
+[class*="st-key-left_panel"] [data-baseweb="tab-highlight"],
+[class*="st-key-left_panel"] [data-baseweb="tab-border"],
+[class*="st-key-left_panel"] .react-aria-SelectionIndicator,
+[class*="st-key-left_panel"] [data-testid="stTabs"] [role="tablist"]::after,
+[class*="st-key-left_panel"] [data-testid="stTab"]::after,
+[class*="st-key-left_panel"] [data-testid="stTab"]::before {
+    display: none !important; background: transparent !important;
+    height: 0 !important; border: none !important;
+}
+[class*="st-key-left_panel"] [role="tablist"],
+[class*="st-key-left_panel"] [data-testid="stTab"] {
+    border-bottom: none !important; box-shadow: none !important;
+}
+/* Collapsible library panel. The state is the attribute data-lib-collapsed on <html>,
+   set by the tab button's script (and remembered in localStorage), so toggling needs no
+   Streamlit rerun. Collapsed, the panel is a thin strip of the active tab's round art
+   bubbles only; the page content follows because it is padded by --panel-w. */
+html[data-lib-collapsed="1"] { --panel-w: calc(3.5rem + 10px); }
+[class*="st-key-left_panel"] { transition: width 0.3s ease; }
+/* 66px wide: 8px panel padding each side leaves a 50px button, so the 40px bubble has
+   5px of room either side of it inside the hover highlight */
+/* gap: 0 removes the 16px Streamlit leaves between the (hidden) header and the tabs */
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] { padding: 0.5rem 0.5rem 0; gap: 0 !important; }
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] [data-testid="stTabPanel"] {
+    padding-top: 0 !important;
+}
+/* Nothing extra to the right of the bubbles: no padding left over inside the list box
+   (Streamlit reserves some for a scrollbar, which is hidden here) */
+html[data-lib-collapsed="1"] [class*="st-key-lib_list"],
+html[data-lib-collapsed="1"] [class*="st-key-lib_list"] [data-testid="stVerticalBlock"] {
+    padding: 0 !important; width: 100% !important; align-items: center;
+}
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] [role="tablist"],
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] [data-baseweb="tab-list"] {
+    display: none !important;
+}
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] .stButton > button {
+    justify-content: center; gap: 0; padding: 4px 0; width: 100%; min-width: 0;
+}
+/* The bubble stays; the name is hidden (it is shown as a hover hint instead, see
+   LIB_ART_JS, which sets each button's title while collapsed) */
+/* Hide the button's whole label wrapper, not just the text inside it: the wrapper kept a
+   9px-wide box beside the bubble, which pushed the bubble to the left of the button. */
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] .stButton > button > * {
+    display: none !important;
+}
+/* The list fills the panel from the top bar down to the player bar. Streamlit gives the
+   list "flex: 1 1 0%", which makes the layout ignore any height set here and leaves it at
+   its default 450px, so the flex is switched off for the height to apply. */
+/* (3rem less than the full height: room for the pinned "+" bubble above the list) */
+html[data-lib-collapsed="1"] [class*="st-key-lib_list"] {
+    flex: none !important;
+    height: calc(100vh - var(--player-h) - var(--top-h) - 4rem) !important;
+    scrollbar-width: none;
+}
+html[data-lib-collapsed="1"] [class*="st-key-lib_list"] *::-webkit-scrollbar,
+html[data-lib-collapsed="1"] [class*="st-key-lib_list"]::-webkit-scrollbar { display: none; }
+html[data-lib-collapsed="1"] [class*="st-key-lib_list"] * { scrollbar-width: none; }
+/* "+" (create a new playlist) in the library header. Icon only, drawn as a CSS mask, at the
+   right end of the title row. The library panel's own button styles (the round art
+   bubble, its hover play icon, the left-aligned row) would apply to it too, so they are
+   overridden here; these rules come after them. */
+[class*="st-key-left_panel"] [class*="st-key-lib_new"] { display: flex; justify-content: flex-end; }
+[class*="st-key-left_panel"] [class*="st-key-lib_new"] button > * { display: none !important; }
+[class*="st-key-left_panel"] [class*="st-key-lib_new"] button {
+    width: 34px; height: 34px; min-height: 0; padding: 0; border-radius: 50%;
+    justify-content: center; gap: 0; background: transparent; box-shadow: none;
+}
+[class*="st-key-left_panel"] [class*="st-key-lib_new"] button::before,
+[class*="st-key-left_panel"] [class*="st-key-lib_new"] button:hover::before {
+    content: ""; flex: none; width: 24px; height: 24px; border-radius: 0;
+    background: #b3b3b3; background-image: none !important;
+    -webkit-mask: url("assets/icons/plus.svg") center / contain no-repeat;
+    mask: url("assets/icons/plus.svg") center / contain no-repeat;
+}
+[class*="st-key-left_panel"] [class*="st-key-lib_new"] button:hover { background: #2a2a2a; }
+[class*="st-key-left_panel"] [class*="st-key-lib_new"] button:hover::before { background: #fff; }
+/* Collapsed: the header is just this button, as a bubble the size of the library bubbles
+   (40px, grey, white plus) centred at the top of the panel. It sits outside the scrolling
+   list, so it stays put while the bubbles below it scroll. */
+html[data-lib-collapsed="1"] [class*="st-key-lib_header"] [class*="st-key-lib_search"],
+html[data-lib-collapsed="1"] [class*="st-key-lib_header"] [data-testid="stColumn"]:first-child {
+    display: none !important;
+}
+html[data-lib-collapsed="1"] [class*="st-key-lib_header"] [data-testid="stHorizontalBlock"] {
+    justify-content: center;
+}
+html[data-lib-collapsed="1"] [class*="st-key-lib_header"] [data-testid="stColumn"] {
+    flex: 0 0 auto !important; width: auto !important; min-width: 0 !important;
+}
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] [class*="st-key-lib_new"] { justify-content: center; }
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] [class*="st-key-lib_new"] button {
+    width: 40px; height: 40px; background: #282828;
+}
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] [class*="st-key-lib_new"] button::before {
+    background: #fff; width: 22px; height: 22px;
+}
+html[data-lib-collapsed="1"] [class*="st-key-left_panel"] [class*="st-key-lib_new"] button:hover { background: #3a3a3a; }
+html[data-lib-collapsed="1"] [class*="st-key-lib_header"] { margin-bottom: 0.5rem; }
+/* The tab: sticks out of the panel's top right corner, double arrows pointing left
+   (they flip to point right while collapsed). It is a fixed element beside the panel
+   rather than a child of it, because the panel clips anything that overflows. */
+#lib-toggle {
+    position: fixed; left: var(--panel-w); top: calc(var(--top-h) + 0.75rem);
+    z-index: 1000000; width: 24px; height: 52px; padding: 0; cursor: pointer;
+    background: #181818; border: 1px solid #282828; border-left: none;
+    border-radius: 0 10px 10px 0; display: flex; align-items: center; justify-content: center;
+    transition: left 0.3s ease, background 0.15s;
+}
+#lib-toggle:hover { background: #282828; }
+#lib-toggle::before {
+    content: ""; width: 18px; height: 18px; background: #b3b3b3; transition: transform 0.3s;
+    -webkit-mask: url("assets/icons/collapse-left.svg") center / contain no-repeat;
+    mask: url("assets/icons/collapse-left.svg") center / contain no-repeat;
+}
+#lib-toggle:hover::before { background: #fff; }
+html[data-lib-collapsed="1"] #lib-toggle::before { transform: rotate(180deg); }
+/* No collapse control, in case Streamlit renders an (empty) native sidebar */
+section[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { display: none !important; }
+
+/* Top bar (brand + search): side by side and pinned while scrolling */
+[class*="st-key-top_bar"] {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000001;
+    background: #000; border-bottom: 2px solid #000; padding: 6px 20px;
+}
+[class*="st-key-top_bar"] [data-testid="stVerticalBlock"] { gap: 0; }
+[class*="st-key-top_bar"] [data-testid="stHorizontalBlock"] { gap: 0.75rem; }
+/* Keep page content clear of the fixed top bar and left panel */
+.block-container {
+    padding-top: calc(var(--top-h) + 1.5rem) !important;
+    padding-left: calc(var(--panel-w) + 2rem) !important;
+    padding-right: 2rem !important;
+    max-width: none !important;
+}
+/* Zero-size fixed holder for the top bar, left panel and helper scripts so they
+   take no room in the page flow. z-index keeps it above Streamlit's own header. */
+.st-key-chrome {
+    position: fixed; top: 0; left: 0; width: 0; height: 0; overflow: visible;
+    z-index: 1000000;
+}
+/* Album / playlist pages (they contain the Back button): tighter top spacing */
+.block-container:has([class*="st-key-view_back"]) {
+    padding-top: calc(var(--top-h) + 0.1rem) !important;
+}
+/* ...and pull the cover row up closer to the Back button */
+[class*="st-key-view_back"] { margin-bottom: -0.5rem; }
+[class*="st-key-top_bar"] .brand {
+    cursor: pointer; width: fit-content; white-space: nowrap; font-size: 1.8rem; line-height: 1;
+    display: flex; align-items: center; height: 34px; margin: 0; padding: 0;
+}
+/* Streamlit adds bottom margins around markdown, which pushes the brand down */
+[class*="st-key-top_bar"] [data-testid="stMarkdown"],
+[class*="st-key-top_bar"] [data-testid="stMarkdownContainer"],
+[class*="st-key-top_bar"] [data-testid="stMarkdownContainer"] > * { margin: 0 !important; padding: 0; }
+[class*="st-key-top_bar"] [data-testid="stColumn"] { align-self: center; }
+/* Search column: 50% of the window wide, centered on the window both ways
+   (the bar is position: fixed, so it is the containing block). The extra 4px
+   adds top padding. */
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(3) {
+    position: absolute; left: calc(50% + 17px); top: calc(50% + 4px); transform: translate(-50%, -50%);
+    width: 40% !important; min-width: 300px; flex: none;
+}
+/* Clear (x) button inside the right end of the search pill; hidden while it is empty */
+[class*="st-key-top_bar"] .st-key-search_clear {
+    position: absolute; right: 6px; top: 6px; width: auto; height: 30px; z-index: 2;
+    display: flex; align-items: center;
+}
+[class*="st-key-top_bar"] .st-key-search_clear button {
+    background: transparent; border: none; color: #b3b3b3; width: 24px; height: 24px;
+    min-height: 0; padding: 0; border-radius: 50%;
+}
+[class*="st-key-top_bar"] .st-key-search_clear button:hover { background: #333; color: #fff; }
+[class*="st-key-top_bar"] .st-key-search_clear [data-testid="stIconMaterial"] { font-size: 1.1rem; color: inherit; }
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(3):has(input:placeholder-shown) .st-key-search_clear {
+    display: none;
+}
+/* Streamlit's "Press Enter to apply" hint: reworded, nudged up, and kept clear of the x.
+   The original text is shrunk to nothing and replaced through ::after. */
+[class*="st-key-top_bar"] [data-testid="InputInstructions"] {
+    font-size: 0 !important; transform: translateY(-3px); margin-right: 28px;
+}
+[class*="st-key-top_bar"] [data-testid="InputInstructions"]::after {
+    content: "↵"; font-size: 0.75rem; color: #b3b3b3;
+}
+/* ...and only shown once something has been typed */
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(3):has(input:placeholder-shown) [data-testid="InputInstructions"] {
+    display: none;
+}
+/* Home button: sits just left of the search bar (whose left edge is at 30%) */
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(2) {
+    position: absolute; right: calc(70% - 5px); top: calc(50% + 4px);
+    transform: translateY(-50%); width: auto !important; flex: none;
+}
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(2) .stButton > button {
+    background: #242424; border: none; border-radius: 50%; color: #fff;
+    width: 34px; height: 34px; min-height: 0; padding: 0;
+}
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(2) .stButton > button:hover {
+    background: #333;
+}
+/* Profile gear: in the far right corner of the bar, styled like the home button */
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(4) {
+    position: absolute; right: 20px; top: calc(50% + 4px);
+    transform: translateY(-50%); width: auto !important; flex: none;
+}
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(4) .stButton button {
+    background: #242424; border: none; border-radius: 50%; color: #fff;
+    width: 34px; height: 34px; min-height: 0; padding: 0;
+}
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(4) .stButton button:hover {
+    background: #333;
+}
+[class*="st-key-top_bar"] [data-testid="stIconMaterial"] { font-size: 1.4rem; color: #fff; }
+/* Brand stays at the left, same vertical centering */
+[class*="st-key-top_bar"] [data-testid="stColumn"]:nth-child(1) { padding-top: 8px; }
+/* Slim the top bar so it fits exactly in --top-h and nothing is clipped */
+[class*="st-key-top_bar"] {
+    height: var(--top-h); box-sizing: border-box; padding-top: 0; padding-bottom: 0;
+    display: flex; flex-direction: column; justify-content: center;
+    /* The search and home widgets are taller than the bar (their invisible padding
+       and label space hang below it) and would block clicks on whatever scrolls
+       underneath. Clipping them to the bar also clips where they take clicks. */
+    overflow: hidden;
+}
+[class*="st-key-top_bar"] div[data-testid="stTextInput"] input {
+    padding: 0.2rem 2.2rem 0.2rem 0.8rem; font-size: 0.9rem; min-height: 0; height: 30px;
+}
+[class*="st-key-top_bar"] div[data-baseweb="input"],
+[class*="st-key-top_bar"] div[data-baseweb="base-input"] { min-height: 0; background: transparent; }
+
+/* Search bar: pill */
+div[data-testid="stTextInput"] input {
+    background: #242424; border: 2px solid transparent; border-radius: 999px;
+    color: #fff; padding: 0.5rem 1.2rem;
+}
+div[data-testid="stTextInput"] input:focus { border-color: #fff; box-shadow: none; }
+/* Streamlit wraps each input in two BaseWeb boxes that have their own background
+   and a focus outline in the theme's primaryColor (green). Make them invisible
+   so only the pill-shaped input itself shows. */
+div[data-testid="stTextInput"] div[data-testid="stTextInputRootElement"],
+div[data-testid="stTextInput"] div[data-baseweb="input"],
+div[data-testid="stTextInput"] div[data-baseweb="base-input"] {
+    background: transparent !important; background-color: transparent !important;
+    border: none !important; border-color: transparent !important;
+    box-shadow: none !important; outline: none !important; border-radius: 999px;
+}
+div[data-testid="stTextInput"] div[data-testid="stTextInputRootElement"]:focus-within,
+div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+div[data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within {
+    border: none !important; border-color: transparent !important;
+    box-shadow: none !important; outline: none !important;
+}
+/* The pill's own focus border (white); keep it on the input only */
+div[data-testid="stTextInput"] input:focus { outline: none !important; }
+
+/* Buttons: green pills */
+.stButton > button[kind="primary"], .stButton > button[data-testid="stBaseButton-primary"] {
+    background: var(--green); color: #000; border: none; border-radius: 999px;
+    font-weight: 700; padding: 0.6rem 1.5rem;
+}
+.stButton > button[kind="primary"]:hover,
+.stButton > button[data-testid="stBaseButton-primary"]:hover {
+    background: var(--green-hover); transform: scale(1.04); color: #000;
+}
+
+/* "Edit" on one of your playlists, "Save playlist" on an auto one: a grey pill next to
+   the green Play pill */
+.st-key-vedit button, .st-key-vsave button {
+    background: #3a3a3a; color: #fff; border: none; border-radius: 999px;
+    font-weight: 700; padding: 0.6rem 1.5rem;
+}
+.st-key-vedit button:hover, .st-key-vsave button:hover { background: #4a4a4a; color: #fff; transform: scale(1.04); }
+/* The "..." button beside it opens a small menu; Delete in it is red */
+.st-key-vmore button {
+    /* three dots drawn as backgrounds, centred on the circle whatever the button's
+       insides look like; the label and Streamlit's arrow are hidden */
+    --dots:
+        radial-gradient(circle 2px at calc(50% - 7px) 50%, #fff 96%, #0000),
+        radial-gradient(circle 2px at 50% 50%, #fff 96%, #0000),
+        radial-gradient(circle 2px at calc(50% + 7px) 50%, #fff 96%, #0000);
+    background: var(--dots), #3a3a3a; border: none; border-radius: 50%;
+    width: 34px; height: 34px; min-height: 0; padding: 0;
+}
+.st-key-vmore button:hover { background: var(--dots), #4a4a4a; }
+.st-key-vmore button > * { display: none; }
+/* The menu itself and its buttons are kept compact */
+[data-testid="stPopoverBody"]:has(.st-key-vdelete, .st-key-vregen) {
+    padding: 0.35rem; min-width: 0; width: auto;
+}
+.st-key-vdelete button, .st-key-vregen button {
+    min-height: 0; height: auto; padding: 0.25rem 0.9rem; font-size: 0.85rem;
+    border-radius: 999px; white-space: nowrap;
+}
+.st-key-vdelete button p, .st-key-vregen button p { font-size: 0.85rem; line-height: 1.3; margin: 0; }
+.st-key-vdelete button { background: #d93025; color: #fff; border: none; font-weight: 700; }
+.st-key-vdelete button:hover { background: #ea4335; color: #fff; }
+
+/* Playlist cards */
+.pl-card {
+    background: var(--card); border-radius: 8px; padding: 16px; transition: background .2s;
+}
+.pl-card:hover { background: var(--card-hover); }
+.pl-cover {
+    aspect-ratio: 1 / 1; border-radius: 6px; display: flex; align-items: flex-end;
+    padding: 12px; font-size: 1.4rem; font-weight: 800;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5); margin-bottom: 12px;
+}
+/* Album / playlist view */
+.view-head { display: flex; align-items: flex-end; gap: 24px; margin: 0 0 1rem; }
+.view-cover {
+    width: 180px; height: 180px; flex: none; border-radius: 8px; object-fit: cover;
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+}
+.view-cover-empty {
+    display: flex; align-items: center; justify-content: center;
+    background: #282828; color: #777; font-size: 4rem; font-weight: 700;
+}
+.view-cover-grad {
+    display: flex; align-items: flex-end; padding: 14px; box-sizing: border-box;
+    font-size: 1.5rem; font-weight: 800; line-height: 1.1; overflow: hidden;
+}
+.view-info { min-width: 0; }
+.view-kind { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; }
+.view-title { font-size: 3rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1.1; }
+.view-meta { color: #b3b3b3; font-size: 0.9rem; margin-top: 0.4rem; }
+.track-head {
+    color: #b3b3b3; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+/* Artist page: one row per album */
+.alb-thumb { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; display: block; }
+.alb-thumb-empty {
+    display: flex; align-items: center; justify-content: center;
+    background: #282828; color: #777; font-weight: 700; font-size: 1.1rem;
+}
+/* Each album is a rectangular card; the header row lines up with the card text */
+[class*="st-key-ahead"] { padding: 0 12px; }
+[class*="st-key-arow"] {
+    position: relative; background: #232323; border-radius: 6px;
+    padding: 8px 12px; transition: background .15s;
+    /* Keep the original row height (48px thumbnail + 16px padding) now that the
+       thumbnail is smaller; the content stays vertically centered. */
+    min-height: 64px; box-sizing: border-box; justify-content: center;
+    /* Streamlit puts a 1rem gap between elements; this halves it between rows */
+    margin-bottom: -0.5rem;
+}
+[class*="st-key-arow"]:hover { background: #333; }
+/* Album-view track rows have no thumbnail, so they can be much thinner */
+[class*="st-key-arow_trk"] { min-height: 42px; padding: 4px 12px; }
+/* Playlist rows show a thumbnail; keep it small enough that rows match album rows */
+[class*="st-key-arow_trk"] .alb-thumb { width: 30px; height: 30px; }
+[class*="st-key-arow_trk"] .alb-thumb-empty { font-size: 0.95rem; }
+[class*="st-key-arow"] [data-testid="stVerticalBlock"] { gap: 0; }
+/* Streamlit's default margins around markdown add space above/below the content */
+[class*="st-key-arow"] [data-testid="stMarkdown"],
+[class*="st-key-arow"] [data-testid="stMarkdownContainer"],
+[class*="st-key-arow"] [data-testid="stMarkdownContainer"] > * { margin: 0 !important; padding: 0; }
+[class*="st-key-arow"] [data-testid="stColumn"] { justify-content: center; }
+[class*="st-key-arow"] [data-testid="stHorizontalBlock"] { align-items: center; }
+/* The button is invisible and covers the whole card, so a click anywhere opens it */
+[class*="st-key-abtn"] {
+    position: absolute !important; inset: 0 !important; z-index: 2; margin: 0 !important;
+    width: auto !important; height: auto !important; max-width: none !important;
+}
+/* Every wrapper between the card and the <button> must also fill it; otherwise the
+   button shrinks to its (invisible) label and only that spot is clickable. */
+[class*="st-key-abtn"] > *,
+[class*="st-key-abtn"] [data-testid="stButton"],
+[class*="st-key-abtn"] .stButton {
+    width: 100% !important; height: 100% !important; max-width: none !important;
+}
+[class*="st-key-abtn"] button {
+    width: 100% !important; height: 100% !important; min-height: 0 !important;
+    opacity: 0; cursor: pointer; border-radius: 6px;
+}
+/* Track rows: no text selection (a double click plays), and the small play button
+   sits above the card-covering invisible button so a single click reaches it */
+[class*="st-key-arow_trk"] { user-select: none; }
+[class*="st-key-vplay_"] { position: relative; z-index: 3; }
+/* Artist / album names in track rows: text links that open that page (one click) */
+[class*="st-key-vlink"] { position: relative; z-index: 3; width: 100% !important; }
+[class*="st-key-vlink"] button {
+    background: transparent; border: none; padding: 0; min-height: 0; height: auto;
+    max-width: 100%; justify-content: flex-start; text-align: left;
+    color: #b3b3b3; font-size: 0.85rem;
+}
+[class*="st-key-vlink"] button p {
+    font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+[class*="st-key-vlink"] button:hover { background: transparent; color: #fff; text-decoration: underline; }
+[class*="st-key-vplay_"] button {
+    background: transparent; border: none; color: #fff; min-height: 0;
+    height: 32px; width: 32px; padding: 0; border-radius: 50%;
+}
+[class*="st-key-vplay_"] button:hover { background: #444; }
+.track-title { font-weight: 600; }
+.track-title.playing { color: var(--green); }
+.track-sub { color: #b3b3b3; font-size: 0.85rem; }
+/* Queue and chat buttons (player bar). They are plain HTML buttons, not Streamlit
+   buttons: a click only sets data-right-panel on <html> (see PANEL_TOGGLE_JS), so the
+   panel opens at once instead of waiting for Streamlit to rerun the whole app. The icon
+   is drawn with a CSS mask: queue = a vertical stack of wide bars, chat = a speech
+   bubble. No fill or border, so the button blends into the bar; green while open. */
+#queue-toggle, #chat-toggle {
+    width: 22px; height: 22px; padding: 0; border: none; outline: none; cursor: pointer;
+    background: transparent; display: flex; align-items: center; justify-content: center;
+}
+#queue-toggle::before, #chat-toggle::before {
+    content: ""; width: 16px; height: 16px; background: #b3b3b3;
+}
+#queue-toggle::before {
+    -webkit-mask: url("assets/icons/queue.svg") center / contain no-repeat;
+    mask: url("assets/icons/queue.svg") center / contain no-repeat;
+}
+#chat-toggle::before {
+    -webkit-mask: url("assets/icons/chat.svg") center / contain no-repeat;
+    mask: url("assets/icons/chat.svg") center / contain no-repeat;
+}
+#queue-toggle:hover::before, #chat-toggle:hover::before { background: #fff; }
+html[data-right-panel="queue"] #queue-toggle::before,
+html[data-right-panel="chat"] #chat-toggle::before { background: var(--green); }
+/* Right-hand panels (queue and chat; only one is open at a time): fixed on the right
+   between the top bar and the player bar. Both are always on the page, parked off the
+   right edge and hidden; opening one just slides it in (a CSS transition on the
+   data-right-panel attribute), so there is nothing to build or wait for. Because they
+   are never removed, a half-typed chat message and the lists' scroll positions are kept. */
+:root { --queue-w: 22rem; }
+[class*="st-key-queue_panel"], [class*="st-key-chat_panel"] {
+    position: fixed; right: 0; top: var(--top-h); bottom: var(--player-h);
+    width: var(--queue-w); z-index: 1000000; box-sizing: border-box;
+    background: #181818; border-left: 1px solid #282828; padding: 1rem 1rem 0;
+    overflow: hidden;
+    transform: translateX(100%); visibility: hidden;
+    /* visibility switches off only after the slide-out has finished */
+    transition: transform 0.4s ease-out, visibility 0s linear 0.4s;
+}
+html[data-right-panel="queue"] [class*="st-key-queue_panel"],
+html[data-right-panel="chat"] [class*="st-key-chat_panel"] {
+    transform: translateX(0); visibility: visible;
+    transition: transform 0.4s ease-out, visibility 0s;
+}
+[class*="st-key-queue_panel"] h3, [class*="st-key-chat_panel"] h3 {
+    font-size: 1.1rem !important; padding: 0 0 0.5rem;
+}
+/* The queue list is pinned to the panel: it starts below the heading and runs all the way
+   down to the player bar. Absolute positioning is used because Streamlit gives the list a
+   fixed layout size (flex: 1 1 0% with a 400px height) that ignores a plain height rule. */
+[class*="st-key-queue_list"] {
+    position: absolute !important; top: 3.25rem; left: 1rem; right: 1rem; bottom: 0;
+    height: auto !important; width: auto !important; min-height: 0 !important;
+    flex: none !important;
+}
+/* Chat: the message list has a fixed height that leaves room at the bottom, and the
+   message box is pinned to the panel's bottom edge (absolute positioning, so it can
+   never be pushed under the player bar). A long message makes the box grow upward
+   over the bottom of the list. */
+[class*="st-key-chat_list"] {
+    height: calc(100vh - var(--player-h) - var(--top-h) - 7.5rem) !important;
+}
+[class*="st-key-chat_text"] {
+    position: absolute !important; left: 1rem; right: 1rem; bottom: 0.75rem; z-index: 2;
+    width: auto !important; margin: 0 !important;
+}
+[class*="st-key-chat_text"] [data-testid="stChatInput"] { border-radius: 18px; }
+/* "+" (start new chat) at the right end of the chat header: icon only, no fill */
+[class*="st-key-chat_new"] { display: flex; justify-content: flex-end; }
+/* The icon is drawn here as a CSS mask (Streamlit's own icon would not resize, as with
+   the play button): 25px, */
+[class*="st-key-chat_new"] button > * { display: none !important; }
+[class*="st-key-chat_new"] button,
+[class*="st-key-chat_new"] button:focus,
+[class*="st-key-chat_new"] button:active {
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    outline: none !important; width: 30px; height: 30px; min-height: 0;
+    padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+}
+[class*="st-key-chat_new"] button::before {
+    content: ""; width: 25px; height: 25px; background: #b3b3b3;
+    -webkit-mask: url("assets/icons/plus.svg") center / contain no-repeat;
+    mask: url("assets/icons/plus.svg") center / contain no-repeat;
+}
+[class*="st-key-chat_new"] button:hover { background: #2a2a2a !important; }
+[class*="st-key-chat_new"] button:hover::before { background: #fff; }
+/* Conversation bubbles, like a support chat: yours are light green on the right, the
+   system's are white on the left; the corner next to the sender is squarer. */
+.chat-row { display: flex; margin: 0 0 0.6rem; }
+.chat-row.user { justify-content: flex-end; }
+.chat-col { display: flex; flex-direction: column; max-width: 82%; }
+.chat-row.user .chat-col { align-items: flex-end; }
+.chat-row.system .chat-col { align-items: flex-start; }
+.chat-bubble {
+    padding: 8px 12px; border-radius: 16px; font-size: 0.9rem; line-height: 1.35;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.chat-row.user .chat-bubble { background: #b9f6ca; color: #0b2e13; border-bottom-right-radius: 4px; }
+.chat-row.system .chat-bubble { background: #ffffff; color: #111; border-bottom-left-radius: 4px; }
+/* The page makes room for the panel over the same 0.4s, so it slides over smoothly */
+.block-container { transition: padding-right 0.4s ease-out, padding-left 0.3s ease; }
+html[data-right-panel] .block-container {
+    padding-right: calc(var(--queue-w) + 1.5rem) !important;
+}
+/* Songs that already played are dimmed */
+.q-dim .track-title { color: #8a8a8a; }
+[class*="st-key-arow_q"] { min-height: 52px; padding: 6px 10px; }
+.q-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.q-cell .alb-thumb { flex: none; }
+.q-cell .q-text { min-width: 0; }
+.q-cell .track-title, .q-cell .track-sub {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Home: one scrolling row of playlist cards (never wraps, fixed card width) */
+[class*="st-key-hrow"] [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap !important; overflow-x: auto; padding-bottom: 10px;
+}
+[class*="st-key-hrow"] [data-testid="stColumn"] {
+    flex: 0 0 190px !important; width: 190px !important; min-width: 190px !important;
+}
+/* Home: recently played cells (small icon on the left, title on the right) */
+[class*="st-key-arow_cell"] { min-height: 52px; padding: 6px 12px; }
+.rec-cell { display: flex; align-items: center; gap: 12px; min-width: 0; padding-right: 40px; }
+.rec-cell .alb-thumb { flex: none; }
+.rec-cell .track-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Home playlist cards: the whole card opens the playlist (invisible "abtn" button),
+   and a compact green play button sits in the bottom right corner.
+
+   Two families of key names are styled here and must never overlap, because these
+   selectors match by substring: tiles are pcard_<row>_<n> / pplay_<row>_<n> (see
+   tile_keys() in app.py, whose trailing "_" keeps one row name from being a prefix of
+   another), and the compact "recommended" cells are arow_cell<n> / cplay<n>. The play
+   button's base look below is shared by both; only the cell overrides are separate. */
+[class*="st-key-pcard"] { position: relative; }
+[class*="st-key-pcard"] [data-testid="stVerticalBlock"] { gap: 0; }
+[class*="st-key-pcard"] [data-testid="stMarkdown"],
+[class*="st-key-pcard"] [data-testid="stMarkdownContainer"] { margin: 0 !important; }
+[class*="st-key-pcard"]:hover .pl-card { background: var(--card-hover); }
+/* The play button is hidden until the tile is hovered, then fades in and rises into the
+   bottom right corner of the gradient square. The card has 16px padding and a 158px
+   (190px column - 2 x 16px) square cover, so the square's bottom edge is 174px down;
+   the button is 40px with an 8px inset: top = 174 - 8 - 40. */
+[class*="st-key-pplay"], [class*="st-key-cplay"] {
+    position: absolute !important; right: 24px; top: 126px; z-index: 3;
+    width: auto !important; margin: 0 !important;
+    opacity: 0; transform: translateY(10px); pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease;
+}
+[class*="st-key-pcard"]:hover [class*="st-key-pplay"],
+[class*="st-key-pcard"]:focus-within [class*="st-key-pplay"] {
+    opacity: 1; transform: translateY(0); pointer-events: auto;
+}
+[class*="st-key-pplay"] button, [class*="st-key-cplay"] button {
+    width: 40px; height: 40px; min-height: 0; padding: 0; border: none; border-radius: 50%;
+    background: var(--green); color: #000; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    transition: transform .1s, background .1s;
+}
+[class*="st-key-pplay"] button:hover, [class*="st-key-cplay"] button:hover {
+    background: var(--green-hover); transform: scale(1.08); color: #000;
+}
+/* Styling Streamlit's own icon element did not change its size, so the button's label
+   is hidden and the triangle is drawn here instead (a CSS mask, like the player bar's
+   play button). --play-icon is the size of the triangle's box (half the 40px circle);
+   the triangle fills roughly half of it. */
+[class*="st-key-pplay"], [class*="st-key-cplay"] { --play-icon: 30px; }
+[class*="st-key-pplay"] button > *, [class*="st-key-cplay"] button > * { display: none !important; }
+[class*="st-key-pplay"] button, [class*="st-key-cplay"] button {
+    display: flex; align-items: center; justify-content: center;
+}
+[class*="st-key-pplay"] button::before, [class*="st-key-cplay"] button::before {
+    content: ""; flex: none; width: var(--play-icon); height: var(--play-icon); background: #000;
+    -webkit-mask: url("assets/icons/play.svg") center / contain no-repeat;
+    mask: url("assets/icons/play.svg") center / contain no-repeat;
+}
+/* Recent Playlists cells: the same round play button, vertically centered at the right
+   end of the cell. It only fades in (no slide) when the cell is hovered. It is smaller
+   than the tile button to suit the short cell. These rules come after the tile ones so
+   they win where both match. */
+[class*="st-key-cplay"] {
+    --play-icon: 16px;
+    right: 12px; top: 50%; transform: translateY(-50%);
+}
+[class*="st-key-cplay"] button { width: 34px; height: 34px; }
+[class*="st-key-arow_cell"]:hover [class*="st-key-cplay"],
+[class*="st-key-arow_cell"]:focus-within [class*="st-key-cplay"] {
+    opacity: 1; transform: translateY(-50%); pointer-events: auto;
+}
+/* Under the gradient: the mix's top three artists, at most two lines, with a fixed
+   height so every card is the same size. */
+.pl-artists {
+    color: #b3b3b3; font-size: 0.85rem; line-height: 1.3; height: 2.6em; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.pl-cover { position: relative; overflow: hidden; font-size: 1.25rem !important; line-height: 1.1; word-break: break-word; }
+.pl-now {
+    position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,.55); color: #fff;
+    font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    padding: 2px 7px; border-radius: 999px;
+}
+
+/* Pinned "now playing" bar */
+.st-key-player_bar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 1000001;
+    background: #000; border-top: 1px solid #000; padding: 0 20px;
+    height: var(--player-h); box-sizing: border-box;
+    display: flex; flex-direction: column; justify-content: center;
+}
+.st-key-player_bar [data-testid="stVerticalBlock"] { gap: 0; }
+.st-key-player_bar [data-testid="stHorizontalBlock"] {
+    gap: 0.75rem; align-items: center; height: 100%;
+}
+/* Streamlit's default margins around markdown and element wrappers push the
+   content off-center; the row must fill the bar exactly. */
+.st-key-player_bar > * { height: 100%; }
+.st-key-player_bar [data-testid="stMarkdown"],
+.st-key-player_bar [data-testid="stMarkdownContainer"],
+.st-key-player_bar [data-testid="stMarkdownContainer"] > * { margin: 0 !important; padding: 0; }
+.st-key-player_bar [data-testid="stColumn"] { justify-content: center; }
+/* Compact round-ish transport buttons */
+.st-key-player_bar .stButton > button {
+    background: transparent; border: none; color: #fff; font-size: 1rem;
+    min-height: 0; height: 34px; width: 34px; padding: 0; border-radius: 50%;
+}
+.st-key-player_bar .stButton > button:hover { background: #282828; }
+/* Controls shrink to their content and sit tightly together */
+.st-key-player_controls [data-testid="stHorizontalBlock"] {
+    gap: 0.25rem; justify-content: center; height: auto;
+}
+/* Slightly smaller buttons so controls + seek bar fit the bar's height */
+.st-key-player_bar .stButton > button { height: 28px; width: 28px; }
+.np-scrub { margin-top: 2px; }
+/* Center column (buttons over seek bar): centered on the window horizontally and
+   vertically, like the top search bar. Its width is set independently here. */
+.st-key-player_bar [data-testid="stColumn"]:nth-child(2) {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 50% !important; min-width: 300px; flex: none;
+}
+/* Queue-button and volume columns (3rd and 4th): shrink to their content and sit
+   together at the right edge of the bar */
+.st-key-player_bar [data-testid="stColumn"]:nth-child(n+3) {
+    flex: 0 0 auto !important; width: auto !important; min-width: 0 !important;
+    align-items: flex-end;
+}
+.st-key-player_bar [data-testid="stColumn"]:nth-child(3) { margin-left: auto; }
+/* ...but the three button columns inside the center column must stay normal
+   (more specific, and later, so it wins over the two rules above) */
+.st-key-player_bar .st-key-player_controls [data-testid="stColumn"] {
+    position: static; transform: none; flex: 0 0 auto !important;
+    width: auto !important; min-width: 0 !important;
+    margin-left: 0; align-items: stretch;
+}
+.np-play {
+    width: 28px; height: 28px; border-radius: 50%; border: none; cursor: pointer;
+    background: #fff; color: #000; font-size: 12px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+}
+/* Play/pause icon: a white shape cut out with a mask, switched by data-state
+   (set by the player script), so no SVG has to pass through st.html. */
+.np-play::before {
+    content: ""; width: 18px; height: 18px; background: #000; pointer-events: none;
+    -webkit-mask: url("assets/icons/play.svg") center / contain no-repeat;
+    mask: url("assets/icons/play.svg") center / contain no-repeat;
+}
+.np-play[data-state="playing"]::before {
+    -webkit-mask: url("assets/icons/pause.svg") center / contain no-repeat;
+    mask: url("assets/icons/pause.svg") center / contain no-repeat;
+}
+/* Material icons in the transport buttons and library headings: white, a bit larger */
+.st-key-player_bar [data-testid="stIconMaterial"] { font-size: 1.5rem; color: #fff; }
+[class*="st-key-left_panel"] [data-testid="stIconMaterial"] { color: #fff; }
+/* Magnifier icon inside the library search box (white vector, drawn as a background) */
+[class*="st-key-left_panel"] div[data-testid="stTextInput"] input {
+    background-image: url("assets/icons/search.svg");
+    background-repeat: no-repeat; background-position: 12px center; background-size: 18px;
+    padding-left: 2.4rem !important;
+}
+.np-play:hover { background: #e6e6e6; transform: scale(1.06); }
+/* The browser's native audio controls are hidden (the element still plays);
+   the custom scrubber below drives it instead. Works the same in every browser. */
+.st-key-player_bar audio {
+    position: absolute !important; width: 1px !important; height: 1px !important;
+    opacity: 0; pointer-events: none;
+}
+.st-key-player_bar [data-testid="stAudio"] { height: 0; overflow: hidden; }
+.np-scrub { display: flex; align-items: center; gap: 10px; }
+.np-scrub .np-time { color: #b3b3b3; font-size: 0.75rem; min-width: 2.6em; text-align: center;
+                     font-variant-numeric: tabular-nums; }
+/* Slim sliders: the round handle is 12px and only shows on hover.
+   --p (set by the script) is how much of the track to fill, for WebKit. */
+.np-scrub input[type=range] {
+    -webkit-appearance: none; appearance: none; background: transparent;
+    cursor: pointer; margin: 0; height: 14px;
+}
+.np-scrub input[type=range]::-webkit-slider-runnable-track {
+    height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, #fff var(--p, 0%), #4d4d4d var(--p, 0%));
+}
+.np-scrub input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: #4d4d4d; }
+.np-scrub input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: #fff; }
+.np-scrub input[type=range]:hover::-webkit-slider-runnable-track {
+    background: linear-gradient(to right, #17A173 var(--p, 0%), #4d4d4d var(--p, 0%));
+}
+.np-scrub input[type=range]:hover::-moz-range-progress { background: #17A173; }
+.np-scrub input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 12px; height: 12px; margin-top: -2px;
+    border: none; border-radius: 50%; background: #fff; opacity: 0;
+}
+.np-scrub input[type=range]::-moz-range-thumb {
+    width: 12px; height: 12px; border: none; border-radius: 50%; background: #fff; opacity: 0;
+}
+.np-scrub input[type=range]:hover::-webkit-slider-thumb,
+.np-scrub input[type=range]:hover::-moz-range-thumb { opacity: 1; }
+.np-scrub #np-seek { flex: 1; min-width: 80px; }
+.np-scrub #np-vol { width: 80px; }
+/* Speaker icon drawn as a CSS mask (st.html strips inline <svg>), so the grey
+   colour is just the background. */
+.np-vol-icon {
+    flex: none; width: 20px; height: 20px; padding: 0; border: none; cursor: pointer;
+    background: #b3b3b3;
+    -webkit-mask: url("assets/icons/volume.svg") center / contain no-repeat;
+    mask: url("assets/icons/volume.svg") center / contain no-repeat;
+}
+.np-vol-icon:hover { background: #fff; }
+/* Muted: the speaker with an X next to it instead of the sound waves. */
+.np-vol-icon[data-muted="1"] {
+    -webkit-mask: url("assets/icons/volume-muted.svg") center / contain no-repeat;
+    mask: url("assets/icons/volume-muted.svg") center / contain no-repeat;
+}
+/* Art fills the bar (minus 6px breathing room top and bottom); the title and
+   artist are centered vertically against it. */
+:root { --art-size: calc(var(--player-h) - 12px); }
+.np-info { display: flex; align-items: center; gap: 12px; min-width: 0; height: var(--art-size); }
+.np-text { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.np-art {
+    width: var(--art-size); height: var(--art-size); flex: none; border-radius: 4px;
+    object-fit: cover; box-shadow: 0 2px 8px rgba(0,0,0,.5);
+}
+.np-art-empty {
+    display: flex; align-items: center; justify-content: center;
+    background: #282828; font-size: 1.5rem; font-weight: 700; color: #777;
+}
+.np-title { font-weight: 700; font-size: 0.9rem; line-height: 1.2; }
+.np-artist { color: #b3b3b3; font-size: 0.78rem; line-height: 1.2; }
+/* Title and artist in the player bar are links: a script (NOW_LINKS_HTML) clicks the hidden
+   Streamlit buttons in .st-key-np_hidden, which open the queue / artist page. */
+.np-title, .np-artist { cursor: pointer; }
+.np-title:hover, .np-artist:hover { text-decoration: underline; }
+.np-artist:hover { color: #fff; }
+.st-key-np_hidden { position: absolute; width: 0; height: 0; overflow: hidden; opacity: 0; pointer-events: none; }
+.result-tag {
+    display: inline-block; margin-left: 10px; padding: 1px 8px; border-radius: 999px;
+    background: #2a2a2a; color: #b3b3b3; font-size: 0.65rem; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; vertical-align: middle;
+}
+.queue-note {
+    background: #181818; border-left: 3px solid #17A173; border-radius: 4px;
+    padding: 10px 14px; color: #b3b3b3; font-size: 0.85rem; margin: 8px 0 16px;
+}
+.block-container { padding-bottom: 100px; }
+
+/* Expanders / dataframes */
+div[data-testid="stExpander"] { background: var(--card); border: none; border-radius: 8px; }
+hr { border-color: #282828; }
+
+/* Create a Playlist: the + on a song search result, and the x on a song already added.
+   Small round buttons at the right end of the row. */
+[class*="st-key-cadd_"] button, [class*="st-key-cdel_"] button {
+    background: #242424; border: none; color: #fff; border-radius: 50%;
+    width: 32px; height: 32px; min-height: 0; padding: 0;
+}
+[class*="st-key-cadd_"] button:hover:not(:disabled) { background: #17A173; color: #000; }
+[class*="st-key-cdel_"] button:hover { background: #3a2222; color: #ff4d4f; }
+[class*="st-key-cadd_"] button:disabled { opacity: 0.5; }
+[class*="st-key-cadd_"], [class*="st-key-cdel_"] { display: flex; justify-content: flex-end; }
+
+/* Text boxes with a clear (x) button: the x sits inside the right end of the box, is hidden
+   while the box is empty, and Streamlit's "Press Enter to apply" hint becomes a small
+   enter symbol next to it (see clearable_text_input in app.py). */
+[class*="st-key-clearbox_"] { position: relative; }
+[class*="st-key-clearbox_"] input { padding-right: 2.6rem; }
+[class*="st-key-clearbtn_"] {
+    position: absolute !important; right: 8px; bottom: 8px; width: auto !important;
+    z-index: 2; display: flex;
+}
+[class*="st-key-clearbtn_"] button {
+    background: transparent; border: none; color: #b3b3b3; width: 24px; height: 24px;
+    min-height: 0; padding: 0; border-radius: 50%;
+}
+[class*="st-key-clearbtn_"] button:hover { background: #333; color: #fff; }
+[class*="st-key-clearbtn_"] [data-testid="stIconMaterial"] { font-size: 1.1rem; color: inherit; }
+[class*="st-key-clearbox_"]:has(input:placeholder-shown) [class*="st-key-clearbtn_"],
+[class*="st-key-clearbox_"]:has(input:placeholder-shown) [data-testid="InputInstructions"] {
+    display: none;
+}
+[class*="st-key-clearbox_"] [data-testid="InputInstructions"] {
+    font-size: 0 !important; transform: translateY(-3px); margin-right: 28px;
+}
+[class*="st-key-clearbox_"] [data-testid="InputInstructions"]::after {
+    content: "↵"; font-size: 0.75rem; color: #b3b3b3;
+}
+
+/* Queue rows: a "..." button at the far right opens a menu with a red Remove. The three dots
+   are drawn as backgrounds, like the one on playlist pages. In the queue panel the button
+   floats over the right end of the row (qpmore_); on the queue page it sits in the last
+   column (qvmore_). Both sit above the invisible button that covers the row. */
+[class*="st-key-qpmore_"], [class*="st-key-qvmore_"] { position: relative; z-index: 3; }
+[class*="st-key-qpmore_"] {
+    position: absolute !important; right: 6px; top: 50%; transform: translateY(-50%);
+    width: auto !important;
+}
+[class*="st-key-qvmore_"] { display: flex; justify-content: flex-end; }
+[class*="st-key-qpmore_"] button, [class*="st-key-qvmore_"] button {
+    --dots:
+        radial-gradient(circle 1.5px at calc(50% - 5px) 50%, #fff 96%, #0000),
+        radial-gradient(circle 1.5px at 50% 50%, #fff 96%, #0000),
+        radial-gradient(circle 1.5px at calc(50% + 5px) 50%, #fff 96%, #0000);
+    background: var(--dots), transparent; border: none; border-radius: 50%;
+    width: 26px; height: 26px; min-height: 0; padding: 0; opacity: 0.7;
+}
+[class*="st-key-qpmore_"] button:hover, [class*="st-key-qvmore_"] button:hover {
+    background: var(--dots), #3a3a3a; opacity: 1;
+}
+[class*="st-key-qpmore_"] button > *, [class*="st-key-qvmore_"] button > * { display: none; }
+/* the menu pops up above the queue panel (which is itself on top of the page) */
+div[data-baseweb="popover"] { z-index: 1000003 !important; }
+[data-testid="stPopoverBody"]:has([class*="st-key-qrm_"], [class*="st-key-qmix_"], [class*="st-key-qnext_"], [class*="st-key-qadd_"]) {
+    padding: 0.35rem; min-width: 0; width: auto;
+}
+/* The song menu's grey buttons (Play Next, Add to Queue, Create a mix): compact pills */
+[class*="st-key-qmix_"] button, [class*="st-key-qnext_"] button, [class*="st-key-qadd_"] button {
+    min-height: 0; height: auto; padding: 0.25rem 0.9rem; border-radius: 999px;
+    background: #3a3a3a; color: #fff; border: none; font-weight: 700; white-space: nowrap;
+}
+[class*="st-key-qmix_"] button p, [class*="st-key-qnext_"] button p, [class*="st-key-qadd_"] button p { font-size: 0.85rem; line-height: 1.3; margin: 0; }
+[class*="st-key-qmix_"] button:hover, [class*="st-key-qnext_"] button:hover, [class*="st-key-qadd_"] button:hover { background: #4a4a4a; color: #fff; }
+[class*="st-key-qrm_"] button {
+    min-height: 0; height: auto; padding: 0.25rem 0.9rem; border-radius: 999px;
+    background: #d93025; color: #fff; border: none; font-weight: 700; white-space: nowrap;
+}
+[class*="st-key-qrm_"] button p { font-size: 0.85rem; line-height: 1.3; margin: 0; }
+[class*="st-key-qrm_"] button:hover { background: #ea4335; color: #fff; }
+/* leave room at the right of a queue panel row for the "..." button */
+.q-cell { padding-right: 30px; }
+
+/* Play / Edit / Save playlist / "..." on playlist and album pages: the buttons keep their
+   full size and text. Their columns never shrink or wrap when a side panel narrows the page
+   (only the empty column at the end gives way). */
+.st-key-view_actions [data-testid="stHorizontalBlock"] { flex-wrap: nowrap; }
+.st-key-view_actions [data-testid="stColumn"] {
+    flex: 0 0 auto !important; width: auto !important; min-width: max-content !important;
+}
+.st-key-view_actions [data-testid="stColumn"]:last-child { flex: 1 1 0 !important; min-width: 0 !important; }
+.st-key-view_actions .stButton, .st-key-view_actions [data-testid="stButton"] { width: auto; }
+.st-key-view_actions button, .st-key-view_actions button p {
+    white-space: nowrap; overflow: visible; text-overflow: clip; flex: none;
+}
+
+/* Streamlit dims everything that is waiting to be redrawn while the app reruns (opacity .33
+   after half a second, fading over a second) but not its popovers, so the "..." buttons
+   stayed bright. A popover dims whenever something next to it in its playlist header, queue
+   row or track row is marked stale, with the same dimness and timing. */
+[data-testid="stPopover"] { transition: opacity 1s ease-in 0.5s; }
+.st-key-view_actions:has([data-stale="true"]) [data-testid="stPopover"],
+[class*="st-key-arow_q"]:has([data-stale="true"]) [data-testid="stPopover"],
+[class*="st-key-arow_trk"]:has([data-stale="true"]) [data-testid="stPopover"] { opacity: 0.33; }
+
+/* The "..." buttons on songs sat a little high: the wrappers around a popover's button are
+   taller than the button (the usual few pixels of text line under an inline button), which
+   shifts it up when the row centres them. Make the wrappers exactly as tall as the button. */
+[class*="st-key-qvmore_"] [data-testid="stPopover"],
+[class*="st-key-qvmore_"] [data-testid="stPopover"] > div,
+[class*="st-key-qvmore_"] [data-testid="stPopover"] > div > div,
+[class*="st-key-qpmore_"] [data-testid="stPopover"],
+[class*="st-key-qpmore_"] [data-testid="stPopover"] > div,
+[class*="st-key-qpmore_"] [data-testid="stPopover"] > div > div {
+    display: flex; align-items: center; line-height: 0; margin: 0; padding: 0;
+}
+[class*="st-key-qvmore_"] button, [class*="st-key-qpmore_"] button { display: block; margin: 0; }
+
+/* The "..." at the top of a playlist page: the same fix as the song ones above, so it sits
+   level with the middle of the Play and Edit / Save playlist buttons beside it. */
+.st-key-vmore [data-testid="stPopover"],
+.st-key-vmore [data-testid="stPopover"] > div,
+.st-key-vmore [data-testid="stPopover"] > div > div {
+    display: flex; align-items: center; line-height: 0; margin: 0; padding: 0;
+}
+.st-key-vmore button { display: block; margin: 0; }
+.st-key-view_actions [data-testid="stColumn"] { align-self: center; }
+
+/* Shuffle (left of Previous) and Repeat (right of Next) in the player bar. Each state has its
+   own key (shuffle_off / shuffle_on, repeat_off / repeat_all / repeat_one / repeat_autoplay),
+   which picks the icon and its colour; the icon is a mask, so the colour is just a background.
+   The button's label is only there for Streamlit and is hidden. */
+.st-key-player_bar [class*="st-key-shuffle_"] button > *,
+.st-key-player_bar [class*="st-key-repeat_"] button > * { display: none; }
+.st-key-player_bar [class*="st-key-shuffle_"] button,
+.st-key-player_bar [class*="st-key-repeat_"] button {
+    display: flex; align-items: center; justify-content: center;
+}
+.st-key-player_bar [class*="st-key-shuffle_"] button::before,
+.st-key-player_bar [class*="st-key-repeat_"] button::before {
+    content: ""; display: block; width: 18px; height: 18px; background: var(--icon-color);
+    -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat;
+}
+.st-key-shuffle_off button { --icon-color: #fff;    --icon: url("assets/icons/shuffle.svg"); }
+.st-key-shuffle_on button  { --icon-color: #17A173; --icon: url("assets/icons/shuffle.svg"); }
+.st-key-repeat_off button      { --icon-color: #b3b3b3; --icon: url("assets/icons/repeat.svg"); }
+.st-key-repeat_all button      { --icon-color: #17A173; --icon: url("assets/icons/repeat.svg"); }
+.st-key-repeat_one button      { --icon-color: #17A173; --icon: url("assets/icons/repeat-one.svg"); }
+.st-key-repeat_autoplay button { --icon-color: #17A173; --icon: url("assets/icons/infinity.svg"); }

@@ -1,0 +1,11 @@
+[server]
+# Serves files in src/static/ at /app/static/... (album-art thumbnails live in src/static/art/)
+enableStaticServing = true
+
+[theme]
+base = "dark"
+primaryColor = "#17A173"
+backgroundColor = "#121212"
+secondaryBackgroundColor = "#181818"
+textColor = "#FFFFFF"
+font = "sans serif"

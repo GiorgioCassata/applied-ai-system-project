@@ -1,0 +1,103 @@
+---
+title: Private Music Streaming App - System Architecture
+---
+flowchart TB
+
+    %% ---------- Actors ----------
+    user(["Listener<br/>(web browser)"])
+
+    %% ---------- Storage ----------
+    subgraph storage["Storage"]
+        direction TB
+        music[("Music files<br/>(private share)")]
+        csv[("songs.csv<br/>the song library")]
+        pljson[("playlists.json<br/>playlists and mixes")]
+        profjson[("user_profile.json<br/>taste profile")]
+        artdir[["static/art<br/>cover thumbnails"]]
+        nowdir[["static/now<br/>current and next song"]]
+    end
+
+    %% ---------- Front-end assets ----------
+    subgraph assets["Front-end assets"]
+        direction TB
+        css["style.css<br/>page styling"]
+        icons["assets/icons<br/>SVG icons"]
+        web["web/<br/>browser scripts"]
+    end
+
+    %% ---------- Streamlit server ----------
+    subgraph server["Streamlit server (Python)"]
+        direction TB
+
+        subgraph appbox["app.py - UI, state and playback"]
+            direction TB
+            topbar["Top bar<br/>logo, search, profile"]
+            views["Views<br/>home, search, album, artist,<br/>playlist, queue, profile, editor"]
+            player["Player bar<br/>controls, seek, volume"]
+            panels["Side panels<br/>library, queue, chat"]
+            menus["Song menus (...)<br/>queue, mix, remove"]
+            session[("Session state<br/>view, queue, now playing")]
+            stage["stage_song()<br/>copies files for playback"]
+            cache["Caches<br/>songs, art, recommender"]
+        end
+
+        subgraph logic["Supporting modules"]
+            direction TB
+            recsys["recommender.py<br/>scores and ranks songs"]
+            queue["play_queue.py<br/>what plays next"]
+            plib["playlists.py<br/>playlists, auto mixes, song mixes"]
+            searchlib["search.py<br/>matches text to songs"]
+            proflib["user_profile.py<br/>the listener's taste"]
+            artlib["album_art.py<br/>finds files and cover art"]
+        end
+
+        static["Static file server<br/>/app/static"]
+    end
+
+    %% ---------- Listener ----------
+    user <--> appbox
+    static --> user
+
+    %% ---------- App uses the modules ----------
+    appbox --> recsys
+    appbox --> queue
+    appbox --> plib
+    appbox --> searchlib
+    appbox --> proflib
+    appbox --> artlib
+
+    %% ---------- Modules use each other ----------
+    plib --> recsys
+    queue --> recsys
+    queue --> plib
+    proflib --> plib
+
+    %% ---------- Storage ----------
+    csv --> recsys
+    plib <--> pljson
+    proflib <--> profjson
+    artlib --> music
+
+    %% ---------- Audio and art delivery ----------
+    music --> stage
+    stage --> nowdir
+    nowdir --> static
+    artdir --> static
+
+    %% ---------- Front-end assets ----------
+    icons --> css
+    css --> appbox
+    web --> appbox
+
+    %% ---------- Styling ----------
+    classDef store fill:#1f2937,stroke:#6b7280,color:#f9fafb;
+    classDef ui fill:#14532d,stroke:#17A173,color:#f0fdf4;
+    classDef logic fill:#1e3a8a,stroke:#60a5fa,color:#eff6ff;
+    classDef actor fill:#581c87,stroke:#c084fc,color:#faf5ff;
+    classDef asset fill:#78350f,stroke:#fbbf24,color:#fffbeb;
+
+    class music,csv,pljson,profjson,artdir,nowdir store;
+    class topbar,views,player,panels,menus,session,stage,cache,static ui;
+    class recsys,queue,plib,searchlib,proflib,artlib,cli logic;
+    class css,icons,web asset;
+    class user actor;

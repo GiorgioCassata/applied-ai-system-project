@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,9 @@ from src.recommender import (
     recommend_songs,
 )
 
-SONGS_CSV = Path(__file__).resolve().parent.parent / "data" / "songs.csv"
+# A frozen 20-song catalog, so the expected winners below don't change when the real
+# library (data/songs.csv) grows.
+SONGS_CSV = Path(__file__).resolve().parent / "data" / "catalog.csv"
 
 
 def make_song(**overrides) -> dict:
@@ -24,7 +27,6 @@ def make_song(**overrides) -> dict:
         "energy": 0.8,
         "tempo_bpm": 120.0,
         "valence": 0.8,
-        "danceability": 0.8,
         "acousticness": 0.2,
     }
     song.update(overrides)
@@ -37,7 +39,6 @@ FULL_PREFS = {
     "energy": 0.8,
     "valence": 0.8,
     "tempo_bpm": 120,
-    "danceability": 0.8,
     "likes_acoustic": False,
 }
 
@@ -52,7 +53,6 @@ def make_small_recommender() -> Recommender:
             energy=0.8,
             tempo_bpm=120,
             valence=0.9,
-            danceability=0.8,
             acousticness=0.2,
         ),
         Song(
@@ -64,7 +64,6 @@ def make_small_recommender() -> Recommender:
             energy=0.4,
             tempo_bpm=80,
             valence=0.6,
-            danceability=0.5,
             acousticness=0.9,
         ),
     ]
@@ -102,6 +101,66 @@ def test_explain_recommendation_returns_non_empty_string():
     assert explanation.strip() != ""
 
 
+def test_recommend_scores_match_the_function_interface():
+    """The class and recommend_songs must rank identically."""
+    user = UserProfile(
+        favorite_genre="pop", favorite_mood="happy", target_energy=0.8, likes_acoustic=False,
+        target_valence=0.8, target_tempo_bpm=120,
+    )
+    rec = make_small_recommender()
+    via_class = [s.id for s in rec.recommend(user, k=2)]
+    via_function = [
+        r[0]["id"]
+        for r in recommend_songs(rec._prefs(user), [asdict(s) for s in rec.songs], k=2)
+    ]
+    assert via_class == via_function == [1, 2]
+
+
+def test_recommend_respects_k_and_does_not_change_the_catalog():
+    user = UserProfile("lofi", "chill", 0.4, True)
+    rec = make_small_recommender()
+    before = list(rec.songs)
+
+    assert [s.id for s in rec.recommend(user, k=1)] == [2]  # the lofi/chill song
+    assert len(rec.recommend(user, k=10)) == 2  # only two songs exist
+    assert rec.songs == before
+
+
+def test_explain_recommendation_names_what_matches_and_has_a_fallback():
+    user = UserProfile("pop", "happy", 0.8, False, target_valence=0.9, target_tempo_bpm=120)
+    rec = make_small_recommender()
+    pop_song, lofi_song = rec.songs
+
+    good = rec.explain_recommendation(user, pop_song)
+    assert "genre matches (pop)" in good and "mood matches (happy)" in good
+
+    # The lofi song matches nothing strongly, but the answer is still a readable string
+    bad = rec.explain_recommendation(user, lofi_song)
+    assert "genre matches" not in bad and bad.strip() != ""
+
+
+def test_user_profile_leaves_out_what_has_no_preference():
+    prefs = Recommender._prefs(UserProfile("jazz", "relaxed", 0.37, True))
+    # valence and tempo were not given, so they are not part of the preferences
+    assert prefs == {"genre": "jazz", "mood": "relaxed", "energy": 0.37, "likes_acoustic": True}
+
+    assert Recommender._prefs(UserProfile()) == {}
+    # "does not like acoustic" is a preference (False); "does not mind" is None
+    assert Recommender._prefs(UserProfile(likes_acoustic=False)) == {"likes_acoustic": False}
+
+
+def test_recommender_works_with_a_partial_or_empty_profile():
+    rec = make_small_recommender()
+
+    only_acoustic = UserProfile(likes_acoustic=True)
+    assert rec.recommend(only_acoustic, k=1)[0].genre == "lofi"  # the 0.9 acousticness song
+    assert rec.recommend(UserProfile(likes_acoustic=False), k=1)[0].genre == "pop"
+
+    nothing = UserProfile()
+    assert len(rec.recommend(nothing, k=2)) == 2
+    assert rec.explain_recommendation(nothing, rec.songs[0]) == "no strong matches"
+
+
 # --- load_songs ---
 
 def test_load_songs_reads_all_rows_with_numeric_types():
@@ -111,7 +170,7 @@ def test_load_songs_reads_all_rows_with_numeric_types():
     first = songs[0]
     assert first["title"] == "Sunrise City"
     assert isinstance(first["id"], int)
-    for field in ("energy", "tempo_bpm", "valence", "danceability", "acousticness"):
+    for field in ("energy", "tempo_bpm", "valence", "acousticness"):
         assert isinstance(first[field], float)
 
 
@@ -129,7 +188,7 @@ def test_score_song_better_match_scores_higher_and_stays_in_range():
     close = make_song(energy=0.75, valence=0.7)
     far = make_song(
         genre="metal", mood="angry", energy=0.1, valence=0.1,
-        tempo_bpm=60.0, danceability=0.1, acousticness=0.95,
+        tempo_bpm=60.0, acousticness=0.95,
     )
 
     close_score, _ = score_song(FULL_PREFS, close)
@@ -173,6 +232,38 @@ def test_score_song_weights_mood_more_than_genre():
     assert mood_score > genre_score
 
 
+def test_score_song_treats_none_like_a_missing_preference():
+    with_none = {"genre": "pop", "mood": None, "energy": None, "likes_acoustic": None}
+    without = {"genre": "pop"}
+    song = make_song(genre="pop")
+
+    assert score_song(with_none, song) == score_song(without, song)
+    assert score_song(with_none, song)[0] == pytest.approx(1.0)
+
+
+def test_score_song_with_no_preferences_scores_zero_without_failing():
+    assert score_song({}, make_song()) == (0.0, [])
+    assert score_song({"genre": None}, make_song()) == (0.0, [])
+
+
+def test_acoustic_preference_is_three_way():
+    acoustic = make_song(id=1, title="Acoustic", acousticness=0.95)
+    electric = make_song(id=2, title="Electric", acousticness=0.05)
+
+    likes = {"likes_acoustic": True}
+    dislikes = {"likes_acoustic": False}
+    assert score_song(likes, acoustic)[0] > score_song(likes, electric)[0]
+    assert score_song(dislikes, electric)[0] > score_song(dislikes, acoustic)[0]
+    # no preference: acousticness plays no part, so the songs tie on it
+    assert score_song({"genre": "pop"}, acoustic)[0] == score_song({"genre": "pop"}, electric)[0]
+
+
+def test_recommend_songs_with_no_preferences_still_returns_songs():
+    songs = [make_song(id=i, title=f"Song {i}") for i in range(1, 5)]
+    results = recommend_songs({}, songs, k=3)
+    assert len(results) == 3 and all(score == 0.0 for _s, score, _why in results)
+
+
 # --- recommend_songs ---
 
 def test_recommend_songs_without_current_song_ranks_by_profile():
@@ -213,7 +304,7 @@ def test_recommend_songs_prefers_songs_that_flow_from_a_good_seed():
     similar = make_song(id=2, title="Similar", artist="B", energy=0.75)
     different = make_song(
         id=3, title="Different", artist="C", genre="metal", mood="angry",
-        energy=0.2, valence=0.1, tempo_bpm=70.0, danceability=0.2, acousticness=0.9,
+        energy=0.2, valence=0.1, tempo_bpm=70.0, acousticness=0.9,
     )
 
     results = recommend_songs(
@@ -260,37 +351,37 @@ def catalog():
 PROFILE_WINNERS = [
     pytest.param(
         {"genre": "metal", "mood": "angry", "energy": 0.97, "valence": 0.22,
-         "tempo_bpm": 168, "danceability": 0.38, "likes_acoustic": False},
+         "tempo_bpm": 168,"likes_acoustic": False},
         "Iron Procession", id="metal-fan",
     ),
     pytest.param(
         {"genre": "classical", "mood": "melancholic", "energy": 0.18, "valence": 0.20,
-         "tempo_bpm": 54, "danceability": 0.22, "likes_acoustic": True},
+         "tempo_bpm": 54,"likes_acoustic": True},
         "Nocturne in Blue", id="classical-listener",
     ),
     pytest.param(
         {"genre": "edm", "mood": "euphoric", "energy": 0.96, "valence": 0.88,
-         "tempo_bpm": 128, "danceability": 0.91, "likes_acoustic": False},
+         "tempo_bpm": 128,"likes_acoustic": False},
         "Bassline Cathedral", id="edm-dancer",
     ),
     pytest.param(
         {"genre": "indie pop", "mood": "happy", "energy": 0.72, "valence": 0.78,
-         "tempo_bpm": 115, "danceability": 0.75, "likes_acoustic": False},
+         "tempo_bpm": 115,"likes_acoustic": False},
         "Rooftop Lights", id="sunny-commuter",
     ),
     pytest.param(
         {"genre": "lofi", "mood": "chill", "energy": 0.35, "valence": 0.60,
-         "tempo_bpm": 72, "danceability": 0.58, "likes_acoustic": True},
+         "tempo_bpm": 72,"likes_acoustic": True},
         "Library Rain", id="chill-lofi",
     ),
     pytest.param(
         {"genre": "lofi", "mood": "focused", "energy": 0.40, "valence": 0.59,
-         "tempo_bpm": 80, "danceability": 0.60, "likes_acoustic": True},
+         "tempo_bpm": 80,"likes_acoustic": True},
         "Focus Flow", id="focused-lofi",
     ),
     pytest.param(
         {"genre": "jazz", "mood": "relaxed", "energy": 0.37, "valence": 0.71,
-         "tempo_bpm": 90, "danceability": 0.54, "likes_acoustic": True},
+         "tempo_bpm": 90,"likes_acoustic": True},
         "Coffee Shop Stories", id="relaxed-jazz",
     ),
 ]
@@ -320,3 +411,40 @@ def test_recommendations_are_deterministic(catalog):
 
     assert [r[0]["id"] for r in first] == [r[0]["id"] for r in second]
     assert [r[1] for r in first] == [r[1] for r in second]
+
+
+# --- converting between library rows, Song and UserProfile (what the app does) ---
+
+def test_song_from_a_library_row_ignores_the_extra_columns():
+    row = make_song(id=7, title="Row Song", album="Some Album", duration_seconds=200, file_path="/x.mp3")
+
+    song = Song.from_dict(row)
+
+    assert song == Song(
+        id=7, title="Row Song", artist="Base Artist", genre="pop", mood="happy",
+        energy=0.8, tempo_bpm=120.0, valence=0.8, acousticness=0.2,
+    )
+    assert song.to_dict() == {
+        k: row[k] for k in ("id", "title", "artist", "genre", "mood", "energy", "tempo_bpm", "valence", "acousticness")
+    }
+
+
+def test_user_profile_and_preferences_dict_convert_both_ways():
+    prefs = {"genre": "jazz", "energy": 0.4, "tempo_bpm": 90, "likes_acoustic": False}
+
+    profile = UserProfile.from_prefs(prefs)
+
+    assert profile == UserProfile(favorite_genre="jazz", target_energy=0.4, target_tempo_bpm=90, likes_acoustic=False)
+    assert profile.to_prefs() == prefs  # nothing lost, and nothing invented for what was left out
+    assert UserProfile.from_prefs({}).to_prefs() == {}
+
+
+def test_recommender_built_from_library_rows_ranks_like_the_function():
+    rows = [make_song(id=1, title="Match"), make_song(id=2, title="Far", genre="metal", mood="angry", energy=0.1, valence=0.1)]
+    rec = Recommender([Song.from_dict(r) for r in rows])
+    prefs = {"genre": "pop", "mood": "happy", "energy": 0.8}
+
+    via_class = [s.id for s in rec.recommend(UserProfile.from_prefs(prefs), k=2)]
+    via_function = [r[0]["id"] for r in recommend_songs(prefs, rows, k=2)]
+
+    assert via_class == via_function == [1, 2]

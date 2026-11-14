@@ -1,13 +1,12 @@
 import csv
 from operator import itemgetter
 from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 @dataclass
 class Song:
     """
-    Represents a song and its attributes.
-    Required by tests/test_recommender.py
+    Represents a song and the attributes the recommender scores it on.
     """
     id: int
     title: str
@@ -17,38 +16,85 @@ class Song:
     energy: float
     tempo_bpm: float
     valence: float
-    danceability: float
     acousticness: float
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> "Song":
+        """A Song from a library row (a dict as load_songs returns); the row's other
+        columns (album, duration, file path...) are ignored."""
+        return cls(**{f.name: data[f.name] for f in fields(cls)})
+
+    def to_dict(self) -> Dict:
+        return dict(vars(self))
 
 @dataclass
 class UserProfile:
     """
     Represents a user's taste preferences.
-    Required by tests/test_recommender.py
+
+    Every field is optional: None means "no preference", and the recommender then ignores
+    that feature (the other features count for more). likes_acoustic is three-way: True
+    (prefers acoustic songs), False (prefers non-acoustic songs) or None (does not mind).
     """
-    favorite_genre: str
-    favorite_mood: str
-    target_energy: float
-    likes_acoustic: bool
-    target_valence: float = 0.5
-    target_tempo_bpm: float = 100
-    target_danceability: float = 0.5
+    favorite_genre: Optional[str] = None
+    favorite_mood: Optional[str] = None
+    target_energy: Optional[float] = None
+    likes_acoustic: Optional[bool] = None
+    target_valence: Optional[float] = None
+    target_tempo_bpm: Optional[float] = None
+
+    def to_prefs(self) -> Dict:
+        """The profile as the preferences dict score_song expects. Fields left at None
+        (no preference) are left out of it."""
+        prefs = {
+            "genre": self.favorite_genre,
+            "mood": self.favorite_mood,
+            "energy": self.target_energy,
+            "valence": self.target_valence,
+            "tempo_bpm": self.target_tempo_bpm,
+            "likes_acoustic": self.likes_acoustic,
+        }
+        return {key: value for key, value in prefs.items() if value is not None}
+
+    @classmethod
+    def from_prefs(cls, prefs: Dict) -> "UserProfile":
+        """A profile from a preferences dict (the shape data/user_profile.json is saved
+        in); anything it does not mention is "no preference"."""
+        return cls(
+            favorite_genre=prefs.get("genre"),
+            favorite_mood=prefs.get("mood"),
+            target_energy=prefs.get("energy"),
+            likes_acoustic=prefs.get("likes_acoustic"),
+            target_valence=prefs.get("valence"),
+            target_tempo_bpm=prefs.get("tempo_bpm"),
+        )
 
 class Recommender:
     """
-    OOP implementation of the recommendation logic.
-    Required by tests/test_recommender.py
+    Object-oriented front end to the recommendation logic.
+
+    It holds a list of Song objects and answers questions for a UserProfile, using the
+    same scoring as the dict-based functions below (score_song / recommend_songs), so
+    the two interfaces always agree.
     """
     def __init__(self, songs: List[Song]):
         self.songs = songs
 
+    @staticmethod
+    def _prefs(user: UserProfile) -> Dict:
+        """The UserProfile as the preferences dict score_song expects."""
+        return user.to_prefs()
+
     def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
-        # TODO: Implement recommendation logic
-        return self.songs[:k]
+        """The k songs that best fit the user's taste, best first."""
+        by_id = {song.id: song for song in self.songs}
+        ranked = recommend_songs(self._prefs(user), [s.to_dict() for s in self.songs], k=k)
+        return [by_id[song["id"]] for song, _score, _why in ranked]
 
     def explain_recommendation(self, user: UserProfile, song: Song) -> str:
-        # TODO: Implement explanation logic
-        return "Explanation placeholder"
+        """Why this song fits (or doesn't fit) the user: the features that match well."""
+        _score, reasons = score_song(self._prefs(user), song.to_dict())
+        return "; ".join(reasons) if reasons else "no strong matches"
 
 def load_songs(csv_path: str) -> List[Dict]:
     """
@@ -57,7 +103,7 @@ def load_songs(csv_path: str) -> List[Dict]:
     """
     print(f"Loading songs from {csv_path}...")
     int_fields = ("id",)
-    float_fields = ("energy", "tempo_bpm", "valence", "danceability", "acousticness")
+    float_fields = ("energy", "tempo_bpm", "valence", "acousticness")
 
     songs = []
     with open(csv_path, newline="", encoding="utf-8") as f:
@@ -73,29 +119,32 @@ def load_songs(csv_path: str) -> List[Dict]:
 
 WEIGHTS = {
     "mood": 0.25,
-    "energy": 0.20,
-    "valence": 0.20,
+    "energy": 0.22,
+    "valence": 0.22,
     "genre": 0.15,
-    "tempo_bpm": 0.08,
-    "danceability": 0.07,
-    "acousticness": 0.05,
+    "tempo_bpm": 0.10,
+    "acousticness": 0.06,
 }
 
 # Moods that earn partial credit when they are not an exact match.
 RELATED_MOODS = [
     {"chill", "relaxed"},
     {"chill", "focused"},
-    {"relaxed", "laid-back"},
-    {"happy", "playful"},
     {"happy", "euphoric"},
     {"intense", "angry"},
     {"sad", "melancholic"},
-    {"nostalgic", "wistful"},
 ]
 
 TEMPO_MIN_BPM = 60
 TEMPO_RANGE_BPM = 120
 STRONG_MATCH = 0.85
+
+
+def song_key(song: Dict) -> Tuple[str, str]:
+    """What makes two library rows the same song: title and artist, ignoring case. The
+    same song often appears on several albums (a studio album and a compilation) under
+    different ids, and the listener should not hear it twice in a mix."""
+    return (str(song["title"]).strip().lower(), str(song["artist"]).strip().lower())
 
 
 def _normalize_tempo(bpm: float) -> float:
@@ -118,8 +167,10 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     Required by recommend_songs() and src/main.py
 
     Returns (score, reasons) where score is 0-1. Features missing from
-    user_prefs are skipped and the remaining weights are renormalized.
+    user_prefs (or set to None, meaning "no preference") are skipped and the remaining
+    weights are renormalized. With no preferences at all every song scores 0.
     """
+    user_prefs = {key: value for key, value in user_prefs.items() if value is not None}
     similarities: Dict[str, float] = {}
     reasons: List[str] = []
 
@@ -135,7 +186,7 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
         elif similarities["mood"] > 0:
             reasons.append(f"mood is related ({song['mood']} ~ {user_prefs['mood']})")
 
-    for feature in ("energy", "valence", "danceability"):
+    for feature in ("energy", "valence"):
         if feature in user_prefs:
             similarities[feature] = 1 - abs(user_prefs[feature] - song[feature])
             if similarities[feature] >= STRONG_MATCH:
@@ -169,7 +220,7 @@ SAME_ARTIST_PENALTY = 0.05
 
 
 def _flow_score(current: Dict, candidate: Dict) -> float:
-    """Weighted similarity between two songs across all seven features."""
+    """Weighted similarity between two songs across all six features."""
     sims = {
         "genre": 1.0 if current["genre"] == candidate["genre"] else 0.0,
         "mood": _mood_similarity(current["mood"], candidate["mood"]),
@@ -177,7 +228,7 @@ def _flow_score(current: Dict, candidate: Dict) -> float:
             _normalize_tempo(current["tempo_bpm"]) - _normalize_tempo(candidate["tempo_bpm"])
         ),
     }
-    for feature in ("energy", "valence", "danceability", "acousticness"):
+    for feature in ("energy", "valence", "acousticness"):
         sims[feature] = 1 - abs(current[feature] - candidate[feature])
     return sum(WEIGHTS[f] * s for f, s in sims.items())
 
@@ -197,6 +248,8 @@ def recommend_songs(
     With current_song, each candidate's profile score is blended with its
     similarity to the current song (Part 2 of the algorithm), and the song
     ids in recently_played are excluded.
+    A song is also excluded when another copy of it (same title and artist, e.g. on a
+    different album) is excluded, and each song appears at most once in the result.
     Returns (song_dict, score, explanation), best first.
     """
     excluded = set(recently_played or [])
@@ -206,9 +259,13 @@ def recommend_songs(
         seed_score, _ = score_song(user_prefs, current_song)
         alpha = FLOW_ALPHA_SCALE * seed_score
 
+    excluded_keys = {song_key(s) for s in songs if s["id"] in excluded}
+    if current_song is not None:
+        excluded_keys.add(song_key(current_song))
+
     ranked = []
     for song in songs:
-        if song["id"] in excluded:
+        if song["id"] in excluded or song_key(song) in excluded_keys:
             continue
 
         profile_score, reasons = score_song(user_prefs, song)
@@ -229,4 +286,11 @@ def recommend_songs(
         ranked.append((song, score, "; ".join(reasons)))
 
     ranked.sort(key=itemgetter(1), reverse=True)
-    return ranked[:k]
+    seen = set()
+    unique = []
+    for entry in ranked:
+        key = song_key(entry[0])
+        if key not in seen:
+            seen.add(key)
+            unique.append(entry)
+    return unique[:k]
