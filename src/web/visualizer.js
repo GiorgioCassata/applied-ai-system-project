@@ -115,11 +115,11 @@
 
     // fade the last frame instead of clearing it, which leaves soft trails
     ctx2d.globalCompositeOperation = "source-over";
-    ctx2d.fillStyle = "rgba(0, 0, 0, 0.2)";
+    ctx2d.fillStyle = "rgba(0, 0, 0, 0.3)";
     ctx2d.fillRect(0, 0, w, h);
 
     const base = s * 0.17 * (1 + bass * 0.3 + thump * 0.04);
-    const glow = ctx2d.createRadialGradient(cx, cy, base * 0.2, cx, cy, s * 0.62);
+    const glow = ctx2d.createRadialGradient(cx, cy, base * 0.2, cx, cy, s * 0.82);
     glow.addColorStop(0, `hsla(${hueBase}, ${sat}%, 40%, ${0.10 + bass * 0.30 + thump * 0.08})`);
     glow.addColorStop(1, `hsla(${hueBase}, ${sat}%, 40%, 0)`);
     ctx2d.fillStyle = glow;
@@ -149,13 +149,13 @@
     }
 
     // a ring that follows the waveform itself
-    ctx2d.lineWidth = Math.max(1.5, s * 0.003);
+    ctx2d.lineWidth = Math.max(2.0, s * 0.003);
     ctx2d.strokeStyle = `hsla(${hueBase + 180}, 60%, 85%, ${0.45 + thump * 0.3})`;
     ctx2d.beginPath();
-    const points = 180;
+    const points = 360;
     for (let i = 0; i <= points; i++) {
       const sample = bins ? (wave[Math.floor((i % points) / points * (bins - 1))] - 128) / 128 : 0;
-      const r = base * 0.82 + sample * base * 0.35;
+      const r = base * 0.9 + sample * base * 0.10;
       const angle = (i / points) * Math.PI * 2;
       const x = cx + Math.cos(angle) * r, y = cy + Math.sin(angle) * r;
       if (i === 0) ctx2d.moveTo(x, y); else ctx2d.lineTo(x, y);

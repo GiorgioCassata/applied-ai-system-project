@@ -293,6 +293,48 @@ class PlayQueue:
         if song_id in self.removed:
             self.removed.remove(song_id)
 
+    def sync_collection(
+        self, song_ids: List[int], library: List[Dict], playable: Callable[[Dict], bool] = _always
+    ) -> None:
+        """Brings the queue in line with its playlist/mix after that was edited: songs
+        taken out of it leave up next, songs added to it join up next, and (without
+        shuffle) up next follows the playlist's new order. The song that is playing keeps
+        playing, history is left alone, and what the listener queued by hand stays."""
+        by_id = {s["id"]: s for s in library}
+        new = [i for i in song_ids if i in by_id and playable(by_id[i])]
+        wanted = set(new)
+        self.base = list(new)
+        for index in reversed(range(self.pos + 1, len(self.songs))):  # songs that are gone
+            if self.origin[index] in (BASE, LOOP) and self.songs[index] not in wanted:
+                self._delete(index)
+        manual = {self.songs[i] for i in range(self.pos + 1, len(self.songs)) if self.origin[i] == MANUAL}
+        if self.shuffle:  # keep the random order; new songs go in at random places
+            known = set(self.songs)
+            run = [i for i in range(self.pos + 1, len(self.songs)) if self.origin[i] == BASE]
+            for song_id in new:
+                if song_id in known:
+                    continue
+                at = (self.rng.choice(run + [run[-1] + 1]) if run else self.pos + 1 + len(manual))
+                self._insert(at, song_id, BASE)
+                run = [i for i in range(self.pos + 1, len(self.songs)) if self.origin[i] == BASE]
+        else:  # up next follows the playlist's order, after what was queued by hand
+            first = next((i for i in range(self.pos + 1, len(self.songs)) if self.origin[i] == BASE), None)
+            if first is None:
+                first = self.pos + 1
+                while first < len(self.songs) and self.origin[first] == MANUAL:
+                    first += 1
+            for index in reversed(range(self.pos + 1, len(self.songs))):
+                if self.origin[index] == BASE:
+                    self._delete(index)
+            if self.current_id in wanted:
+                ahead = new[new.index(self.current_id) + 1:]
+            else:  # the playing song was taken out: carry on with what was not played yet
+                played = set(self.songs[:self.pos + 1])
+                ahead = [i for i in new if i not in played]
+            for offset, song_id in enumerate(i for i in ahead if i != self.current_id and i not in manual):
+                self._insert(min(first, len(self.songs)) + offset, song_id, BASE)
+        self.top_up(library, playable)
+
     def play_next(self, song_id: int) -> bool:
         """Puts the song right after the current one, so it plays when this song ends. A
         song already in the queue is moved there. Returns False for the song that is

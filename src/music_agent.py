@@ -46,8 +46,8 @@ except ImportError:  # imported as part of the "src" package (tests)
 # Directory where prompt templates live, relative to this file
 PROMPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prompts")
 
-MAX_STEPS = 6  # model requests for one user message
-MAX_TURNS_KEPT = 4  # earlier user messages (with their tool traffic) kept as context
+MAX_STEPS = 8  # model requests for one user message
+MAX_TURNS_KEPT = 6  # earlier user messages (with their tool traffic) kept as context
 FALLBACK_REPLY = "Sorry, I couldn't reach my brain just now. Please try again in a moment."
 EMPTY_REPLY = "I'm not sure what to do with that. Could you say it a different way?"
 UNDONE_REPLY = "Sorry, I wasn't able to do that, so nothing was changed. Please try asking again."

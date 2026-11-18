@@ -29,7 +29,10 @@ from typing import Any, Dict, List, Optional
 # Pick a model that supports tool calling, or the agent will not be able to use its tools.
 OLLAMA_MODELS = [
     "gemma4:latest",
-    "ornith:9b",
+    "lfm2.5:latest",
+    "qwen3:8b",
+    "qwen3.5:latest",
+    "gemma4:e2b",
 ]
 # ----------------------------------------------------------------------------------------
 
@@ -98,7 +101,7 @@ class GeminiClient:
     - GEMINI_API_KEY set in the environment (or loaded via python-dotenv)
     """
 
-    def __init__(self, model_name: str = "gemini-flash-lite-latest", temperature: float = 0.2):
+    def __init__(self, model_name: str = "gemini-flash-lite-latest", temperature: float = 0.25):
         api_key = os.getenv("GEMINI_API_KEY", "").strip()
         if not api_key:
             raise RuntimeError(

@@ -10,9 +10,13 @@ Usage:
     python scripts/populate_songs.py /Volumes/music --dry-run    # preview only
     python scripts/populate_songs.py /Volumes/music --force      # rebuild every thumbnail
     python scripts/populate_songs.py /Volumes/music --no-art     # songs only, skip the artwork
+    python scripts/populate_songs.py --dedupe --dry-run          # preview duplicates already in the CSV
+    python scripts/populate_songs.py --dedupe                    # remove them (keeps the first of each)
 
 Step 1, songs. Songs already in the CSV (matched by file_path) are left alone, so it
-is safe to re-run after adding music. Existing rows are never modified (except for the
+is safe to re-run after adding music. Duplicates (same artist + title, ignoring case and
+punctuation) are skipped, whether they repeat within the music folder or already exist in
+the CSV; the first file found is kept. Existing rows are never modified (except for the
 art_file column, see step 2).
 
 Audio features (energy, valence, ...) cannot be read from files, so new songs
@@ -86,6 +90,14 @@ CHECKPOINT_EVERY = 25     # write the CSV every N new songs, and every N albums 
 def title_from_filename(path: Path) -> str:
     """'01 - Some Song.mp3' / '01. Some Song.mp3' -> 'Some Song'."""
     return re.sub(r"^\s*\d{1,3}\s*[-._)]*\s*", "", path.stem).strip() or path.stem
+
+
+def song_key(artist: str, title: str) -> tuple:
+    """Identity used to spot duplicates: artist + title, ignoring case, accents-free
+    punctuation and spacing ('Song  Name!' == 'song name')."""
+    def norm(text):
+        return re.sub(r"[\W_]+", " ", text.casefold()).strip()
+    return (norm(artist), norm(title))
 
 
 def leading_int(text: str):
@@ -202,9 +214,49 @@ def audio_file(row, root: Path):
     return resolve_audio_path(row)
 
 
+def dedupe_csv(csv_path: Path, dry_run: bool) -> int:
+    """Removes rows whose artist + title repeat an earlier row (the first one is kept).
+    Remaining rows keep their ids. The CSV is backed up to .csv.bak before being rewritten."""
+    if not csv_path.exists():
+        print(f"{csv_path} not found.", file=sys.stderr)
+        return 1
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        columns = list(reader.fieldnames or BASE_COLUMNS)
+        rows = list(reader)
+
+    seen, kept, removed = set(), [], []
+    for row in rows:
+        key = song_key(row.get("artist") or "", row.get("title") or "")
+        if key != ("", "") and key in seen:
+            removed.append(row)
+        else:
+            seen.add(key)
+            kept.append(row)
+
+    print(f"{len(rows)} songs in {csv_path}: {len(removed)} duplicate(s) found.")
+    for row in removed[:20]:
+        print(f"  - id {row.get('id')}: {row.get('artist')} / {row.get('title')} ({row.get('file_path')})")
+    if len(removed) > 20:
+        print(f"  ... and {len(removed) - 20} more")
+    if not removed:
+        return 0
+    if dry_run:
+        print("Dry run: nothing written.")
+        return 0
+    shutil.copy2(csv_path, csv_path.with_suffix(".csv.bak"))
+    save_csv(csv_path, columns, kept)
+    print(f"Removed {len(removed)}; {len(kept)} songs remain (backup: {csv_path.with_suffix('.csv.bak').name}).")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("root", type=Path, help="music folder (the one containing ARTIST folders)")
+    parser.add_argument("root", type=Path, nargs="?",
+                        help="music folder (the one containing ARTIST folders); optional with --dedupe")
+    parser.add_argument("--dedupe", action="store_true",
+                        help="only remove duplicate songs (same artist + title) already in the CSV, "
+                             "keeping the first of each; no scanning, no new songs")
     parser.add_argument("--csv", type=Path, default=DEFAULT_CSV, help="songs.csv to update")
     parser.add_argument("--relative", action="store_true",
                         help="store file_path relative to root (set NOTIFY_MUSIC_ROOT when running the app)")
@@ -212,6 +264,11 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="rebuild album-art thumbnails that already exist")
     parser.add_argument("--no-art", action="store_true", help="add songs only; skip the album art")
     args = parser.parse_args()
+
+    if args.dedupe:
+        return dedupe_csv(args.csv, args.dry_run)
+    if args.root is None:
+        parser.error("the music folder is required unless --dedupe is given")
 
     root = args.root.expanduser().resolve()
     if not root.is_dir():
@@ -266,17 +323,30 @@ def main() -> int:
         to_add = [item for item in to_add if item[3] not in known_paths]
         print(f"{len(songs) - len(to_add)} already in the CSV, {len(to_add)} to add.", flush=True)
 
+        # Same song stored in several places (copies, other albums/folders) is added once:
+        # the first file found wins. Existing CSV rows count, so re-runs don't add copies.
+        seen_songs = {song_key(row["artist"], row["title"]) for row in existing
+                      if row.get("artist") and row.get("title")}
+        duplicates = []
+
         new_rows = []
         for count, (path, artist, album, stored) in enumerate(to_add, start=1):
             if count % TAG_REPORT_EVERY == 0 or count == len(to_add):
                 print(f"  reading tags... {count}/{len(to_add)}", flush=True)
             tags = read_tags(path)
+            title = tags.get("title") or title_from_filename(path)
+            song_artist = tags.get("artist") or artist   # tag first, folder name as fallback
+            key = song_key(song_artist, title)
+            if key in seen_songs:
+                duplicates.append(stored)
+                continue
+            seen_songs.add(key)
             row = {column: "" for column in columns}
             row.update(DEFAULTS)
             row.update(
                 id=next_id,
-                title=tags.get("title") or title_from_filename(path),
-                artist=tags.get("artist") or artist,   # tag first, folder name as fallback
+                title=title,
+                artist=song_artist,
                 album=tags.get("album") or album,
                 file_path=stored,
             )
@@ -294,6 +364,12 @@ def main() -> int:
             if count % CHECKPOINT_EVERY == 0:
                 checkpoint(f"{count} songs added")
 
+        if duplicates:
+            print(f"Skipped {len(duplicates)} duplicate song(s) (same artist + title already present):")
+            for stored in duplicates[:10]:
+                print(f"  = {stored}")
+            if len(duplicates) > 10:
+                print(f"  ... and {len(duplicates) - 10} more")
         print(f"Found {len(new_rows)} new song(s) under {root}.")
         for row in new_rows[:10]:
             print(f"  + {row['artist']} / {row['album']} / {row['title']}")

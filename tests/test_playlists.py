@@ -349,7 +349,7 @@ def test_the_oldest_song_mix_leaves_once_the_recommended_list_is_full():
     assert all(old not in store["playlists"] for old in made[:2])  # the oldest two are gone
     assert len(plib.recommended_playlists(store, now)) == 6
 
-    # with a "Made for You" mix there is one place fewer
+    # with a "For You" mix there is one place fewer
     store2, now = _store_with_auto_mixes(user_prefs={"energy": 0.5})
     for i in range(6):
         plib.create_song_mix(store2, SONGS[i], SONGS, datetime(2026, 3, 1, 10, i), random.Random(1))
