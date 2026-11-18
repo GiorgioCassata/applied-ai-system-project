@@ -169,6 +169,16 @@ def get_store():
     return store
 
 
+def save_store_and_sync_queue(store):
+    """Saves the playlists, and brings the play queue in line with the playlist or mix it
+    came from (if that was edited): see PlayQueue.sync_collection."""
+    plib.save_store(store)
+    queue = get_queue()
+    playlist = store["playlists"].get(queue.source) if queue and queue.source else None
+    if playlist and playlist["song_ids"] != queue.base:
+        queue.sync_collection(playlist["song_ids"], get_songs(), resolve_audio_path)
+
+
 def play_song(song_id, playlist_id=None):
     """Starts a new play queue at song_id (see play_queue.py).
 
@@ -327,7 +337,7 @@ def regenerate_playlist(playlist_id):
     songs; the page shows it straight away."""
     store = plib.load_store()
     if plib.regenerate_auto_playlist(store, playlist_id, get_songs()):
-        plib.save_store(store)
+        save_store_and_sync_queue(store)
         st.toast("Made a new mix.")
 
 
@@ -336,7 +346,7 @@ def remove_song_from_mix(playlist_id, song_id):
     others close up, and a fitting new song is added at the end."""
     store = plib.load_store()
     if plib.remove_from_mix(store, playlist_id, get_songs(), song_id=song_id):
-        plib.save_store(store)
+        save_store_and_sync_queue(store)
         st.toast("Removed it from this mix and added a new song at the end.")
 
 
@@ -345,7 +355,7 @@ def remove_artist_from_mix(playlist_id, artist):
     songs by other artists are added at the end."""
     store = plib.load_store()
     count = plib.remove_from_mix(store, playlist_id, get_songs(), artist=artist)
-    plib.save_store(store)
+    save_store_and_sync_queue(store)
     if count:
         st.toast(f"Removed {count} song{'s' if count != 1 else ''} by {artist} from this mix.")
 
@@ -568,6 +578,10 @@ with st.container(key="top_bar"):
             label_visibility="collapsed", on_change=run_search,
         )
         st.button(":material/close:", key="search_clear", on_click=clear_search, help="Clear search")
+        # Enter on text that was already searched does not trigger on_change, so
+        # web/search_enter.js clicks this hidden button instead (see style.css).
+        st.button("Search", key="search_go", on_click=run_search)
+        st.html(web_fragment("search_enter"), unsafe_allow_javascript=True)
     with profile_col:  # the gear, in the far right corner
         st.button(":material/settings:", key="profile_btn", on_click=open_profile)  # hint: native_hints.js
 
@@ -639,7 +653,8 @@ with st.container(key="left_panel"):
     lib_store = get_store()
     user_playlists = sorted(
         (p for p in lib_store["playlists"].values() if p["kind"] == "user"),
-        key=lambda p: p["name"].lower(),
+        key=lambda p: p.get("created", ""),
+        reverse=True,  # newest first
     )
     auto_list = (
         plib.auto_playlists(lib_store, "time")
@@ -1438,7 +1453,7 @@ def render_playlist_editor(playlist_id=None):
         """Writes one part of the edit, remembers a message, and redraws the page (it stays
         open, now showing what has been saved)."""
         plib.update_playlist(store, playlist_id, name_to_save, song_ids, songs)
-        plib.save_store(store)
+        save_store_and_sync_queue(store)
         st.session_state.edit_flash = message
         st.rerun()
 
@@ -1542,7 +1557,7 @@ def render_playlist_editor(playlist_id=None):
             st.error("Add at least one song first.")
         elif editing:
             plib.update_playlist(store, playlist_id, name, list(draft), songs)
-            plib.save_store(store)
+            save_store_and_sync_queue(store)
             for key in (draft_key, name_key, search_key):
                 st.session_state.pop(key, None)
             go_back()  # to the playlist's page, now with its new name and songs
@@ -1596,7 +1611,7 @@ def agent_context():
         get_queue=get_queue,
         playable=resolve_audio_path,
         load_store=get_store,
-        save_store=plib.save_store,
+        save_store=save_store_and_sync_queue,
         start_playback=play_song,
         start_album=play_album,
         start_playlist=play_playlist,
@@ -1871,7 +1886,7 @@ def clear_user_profile():
 
 def render_profile_view():
     """The user profile page, opened by the gear in the top bar: the listener's taste,
-    which the recommender uses for the "Made for You" mix on the home page. Every
+    which the recommender uses for the "For You" mix on the home page. Every
     preference can be left as "no preference" (Any, or the checkbox beside a slider); those
     features are then ignored instead of counting as a middle value."""
     st.button(":material/arrow_back: Back", key="view_back", on_click=go_back)
@@ -1881,7 +1896,7 @@ def render_profile_view():
     current = saved or {}
     st.caption(
         "Tell us what you like. Leave anything you don't mind as \"Any\" or tick \"No "
-        "preference\": it is then ignored. Your preferences shape the Made for You mix on the "
+        "preference\": it is then ignored. Your preferences shape the For You mix on the "
         "home page."
     )
 
@@ -1930,9 +1945,9 @@ def render_profile_view():
             prefs[key] = None if state[f"prof_{key}_any"] else state[f"prof_{key}"]
         saved = uprofile.save_profile(prefs)
         if saved:
-            st.success("Saved. Your Made for You mix on the home page now follows these preferences.")
+            st.success("Saved. Your For You mix on the home page now follows these preferences.")
         else:
-            st.info("Saved, with no preference for anything, so there is no Made for You mix.")
+            st.info("Saved, with no preference for anything, so there is no For You mix.")
 
     if saved is not None:
         st.button("Clear my preferences", key="profile_clear", on_click=clear_user_profile)
@@ -2094,6 +2109,7 @@ st.html(web_fragment("visualizer"), unsafe_allow_javascript=True)
 st.html(QUEUE_SCROLL_JS, unsafe_allow_javascript=True)
 st.html(CHAT_SCROLL_JS, unsafe_allow_javascript=True)
 st.html(web_fragment("native_hints"), unsafe_allow_javascript=True)
+st.html(web_fragment("media_keys"), unsafe_allow_javascript=True)
 st.html(web_fragment("popover_autoclose"), unsafe_allow_javascript=True)
 
 # --- Slow part, last: get the audio files ready ---

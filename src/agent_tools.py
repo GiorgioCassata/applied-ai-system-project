@@ -40,7 +40,7 @@ except ImportError:  # imported as part of the "src" package (tests)
     from src.recommender import song_key
 
 MAX_RESULTS = 25  # most songs one tool call returns, so a reply stays small for the model
-MAX_QUEUE_SHOWN = 25
+MAX_QUEUE_SHOWN = 50
 
 
 # --- what the tools work on --------------------------------------------------------
@@ -261,6 +261,26 @@ def _brief(song: Dict) -> Dict:
             "album": song.get("album") or ""}
 
 
+def _num(value: Any) -> Optional[int]:
+    """A track or disc number as an int, or None when it is missing or not a number."""
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _track_info(song: Dict) -> Dict:
+    """Where a song sits on its album, for results the model may need to put in album order."""
+    return {"track_number": _num(song.get("track_number")), "disc_number": _num(song.get("disc_number"))}
+
+
+def _album_order(song: Dict):
+    """Sort key: album, then disc, then track (songs with no track number go last)."""
+    return ((song.get("album") or "").lower(), _num(song.get("disc_number")) or 1,
+            _num(song.get("track_number")) or 9999, song["title"].lower())
+
+
 def _same(a: str, b: str) -> bool:
     return a.strip().lower() == b.strip().lower()
 
@@ -268,9 +288,15 @@ def _same(a: str, b: str) -> bool:
 def _playlist(ctx: AgentContext, store: Dict, playlist_id: str):
     """(playlist, None) or (None, error dict)."""
     found = store["playlists"].get(playlist_id)
-    if found is None:
+    if found is None:  # the model may pass the playlist's name instead of its id
+        named = [p for p in store["playlists"].values() if _same(p["name"], str(playlist_id))]
+        if len(named) == 1:
+            return named[0], None
+        if named:
+            options = ", ".join(f'{p["id"]} ({p["kind"]})' for p in named)
+            return None, _error(f"More than one playlist is called '{playlist_id}': {options}. Use one of these ids.")
         return None, _error(
-            f"No playlist with id '{playlist_id}'. Use list_playlists to see the real ids."
+            f"No playlist with id or name '{playlist_id}'. Use list_playlists to see the real ids."
         )
     return found, None
 
@@ -316,7 +342,9 @@ def find_song(
 ) -> Dict:
     """Searches the library for songs and returns their ids. Give at least one of the
     filters; the more you give, the fewer (better) results. The same song can exist on
-    several albums with different ids, so check the album when it matters. It matches
+    several albums with different ids, so check the album when it matters. Each song has its
+    track_number and disc_number on its album; with an album filter the results come back in
+    album order. It matches
     text anywhere (and falls back to fuzzy matching), so for "starts with", "ends with" or
     year ranges use search_songs instead. Always use
     this to get a song_id; never guess one.
@@ -348,11 +376,16 @@ def find_song(
         query = " ".join(x for x in (title, artist, album) if x)
         found = search.search_songs(query, ctx.songs)
         fuzzy = bool(found)
-    found.sort(key=lambda s: (s["artist"].lower(), s["title"].lower(), s.get("album") or ""))
+    if album:  # an album was asked for: list it in album order (disc, then track)
+        found.sort(key=lambda s: (s["artist"].lower(), *_album_order(s)))
+    else:
+        found.sort(key=lambda s: (s["artist"].lower(), s["title"].lower(), s.get("album") or ""))
     result = {
         "ok": True,
         "count": len(found),
-        "songs": [dict(_brief(s), release_year=s.get("release_year")) for s in found[:MAX_RESULTS]],
+        "songs": [dict(_brief(s), **_track_info(s), release_year=s.get("release_year"),
+                       duration_seconds=_seconds(s))
+                  for s in found[:MAX_RESULTS]],
     }
     if len(found) > MAX_RESULTS:
         result["note"] = f"Only the first {MAX_RESULTS} of {len(found)} are shown; narrow the search."
@@ -399,7 +432,8 @@ def search_songs(
     artist whose name starts with a letter, a range of years ("from the 80s"), and any mix
     of these. Every filter given has to match (case ignored). Unlike find_song there is no
     fuzzy fallback: an empty result means nothing matches. One copy of each song is
-    returned. Starts-with ignores punctuation in front of the text, so "'Til Tuesday"
+    returned, with its track_number and disc_number (sort_by="track" gives album order).
+    Starts-with ignores punctuation in front of the text, so "'Til Tuesday"
     starts with T, but a leading "The" counts ("The Reaper" starts with T, not R).
     Args:
         title_starts_with: what the title begins with, a letter or more, e.g. "q" or "love"
@@ -414,7 +448,7 @@ def search_songs(
         mood: an exact mood (see list_genres_and_moods)
         min_year: earliest release year
         max_year: latest release year (1989 with min_year 1980 for "the 80s")
-        sort_by: "title" (the default), "artist", "year", "newest" or "random"
+        sort_by: "title" (the default), "artist", "year", "newest", "random" or "track" (album order: album, disc, track number)
         limit: how many songs to return, up to 25
         offset: how many matches to skip, to see the next page of a long result
         playable_only: leave out songs with no audio file (default true)
@@ -423,7 +457,7 @@ def search_songs(
                artist_contains, album_starts_with, album_contains, genre, mood, min_year, max_year]
     if all(f in (None, "") for f in filters):
         return _error("Give at least one filter, e.g. title_starts_with or artist_starts_with.")
-    sorts = ("title", "artist", "year", "newest", "random")
+    sorts = ("title", "artist", "year", "newest", "random", "track")
     if sort_by not in sorts:
         return _error(f"sort_by must be one of {list(sorts)}.")
     if min_year is not None and max_year is not None and min_year > max_year:
@@ -486,6 +520,7 @@ def search_songs(
             "artist": lambda s: (s["artist"].lower(), s["title"].lower()),
             "year": lambda s: (year(s) or 9999, s["title"].lower()),
             "newest": lambda s: (-year(s), s["title"].lower()),
+            "track": lambda s: (s["artist"].lower(), *_album_order(s)),
         }
         found.sort(key=keys[sort_by])
     start = max(0, offset)
@@ -493,7 +528,9 @@ def search_songs(
     result = {
         "ok": True,
         "count": len(found),
-        "songs": [dict(_brief(s), release_year=s.get("release_year")) for s in shown],
+        "songs": [dict(_brief(s), **_track_info(s), release_year=s.get("release_year"),
+                       duration_seconds=_seconds(s))
+                  for s in shown],
     }
     if start + len(shown) < len(found):
         result["note"] = (f"Showing {start + 1}-{start + len(shown)} of {len(found)}; "
@@ -511,6 +548,22 @@ def _seconds(song: Dict) -> int:
         return int(float(song.get("duration_seconds") or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _total_seconds(songs: List[Dict]) -> int:
+    """The play length of these songs added together (a song of unknown length counts 0)."""
+    return sum(_seconds(s) for s in songs)
+
+
+def _length_info(ctx: AgentContext, song_ids: List[int]) -> Dict:
+    """total_minutes for a list of song ids, as a model should read it: rounded to a tenth,
+    plus how many songs had no known length (left out of the total) when there are any."""
+    songs = [s for s in (ctx.song(i) for i in song_ids) if s]
+    info = {"total_minutes": round(_total_seconds(songs) / 60, 1)}
+    unknown = sum(1 for s in songs if not _seconds(s))
+    if unknown:
+        info["unknown_length_songs"] = unknown
+    return info
 
 
 FEEL_SORTS = {
@@ -687,8 +740,9 @@ def find_album(ctx: AgentContext, name: Optional[str] = None, artist: Optional[s
 
 @tool
 def list_playlists(ctx: AgentContext, kind: Optional[str] = None) -> Dict:
-    """Lists playlists with their ids, names and sizes. Kinds: "user" (the listener's own,
-    editable) and "auto" (mixes the app generates, which refresh through the day).
+    """Lists playlists with their ids, names, sizes and total play length in minutes. Kinds:
+    "user" (the listener's own, editable) and "auto" (mixes the app generates, which refresh
+    through the day).
     Args:
         kind: "user" or "auto"; leave out for both
     """
@@ -696,7 +750,8 @@ def list_playlists(ctx: AgentContext, kind: Optional[str] = None) -> Dict:
         return _error('kind must be "user" or "auto".')
     store = ctx.load_store()
     rows = [
-        {"id": p["id"], "name": p["name"], "kind": p.get("kind"), "song_count": len(p["song_ids"])}
+        {"id": p["id"], "name": p["name"], "kind": p.get("kind"), "song_count": len(p["song_ids"]),
+         **_length_info(ctx, p["song_ids"])}
         for p in store["playlists"].values()
         if kind is None or p.get("kind") == kind
     ]
@@ -705,8 +760,8 @@ def list_playlists(ctx: AgentContext, kind: Optional[str] = None) -> Dict:
 
 @tool
 def read_playlist(ctx: AgentContext, playlist_id: str) -> Dict:
-    """Returns a playlist's name, kind and its songs in order, each with its 1-based
-    position.
+    """Returns a playlist's name, kind, total play length in minutes and its songs in order,
+    each with its 1-based position and length in seconds.
     Args:
         playlist_id: the playlist's id (from list_playlists)
     """
@@ -717,9 +772,11 @@ def read_playlist(ctx: AgentContext, playlist_id: str) -> Dict:
     for position, song_id in enumerate(playlist["song_ids"], start=1):
         song = ctx.song(song_id)
         if song:
-            songs.append(dict(_brief(song), position=position))
+            songs.append(dict(_brief(song), **_track_info(song), position=position,
+                              duration_seconds=_seconds(song)))
     return {"ok": True, "id": playlist["id"], "name": playlist["name"],
-            "kind": playlist.get("kind"), "song_count": len(songs), "songs": songs}
+            "kind": playlist.get("kind"), "song_count": len(songs),
+            **_length_info(ctx, playlist["song_ids"]), "songs": songs}
 
 
 @tool
@@ -757,7 +814,8 @@ def create_playlist(ctx: AgentContext, name: str, song_ids: List[int]) -> Dict:
     final_name = plib.unique_playlist_name(store, name)
     pid = plib.create_playlist(store, final_name, ids, ctx.songs)
     ctx.save_store(store)
-    return {"ok": True, "playlist_id": pid, "name": final_name, "song_count": len(ids)}
+    return {"ok": True, "playlist_id": pid, "name": final_name, "song_count": len(ids),
+            **_length_info(ctx, ids)}
 
 
 @tool
@@ -855,7 +913,8 @@ def add_song_to_playlist(ctx: AgentContext, song_id: int, playlist_id: str) -> D
     if twin is not None:
         return _error(f'"{song["title"]}" is already in "{playlist["name"]}" (id {twin}, another album).')
     _save_songs(ctx, store, playlist, ids + [song_id])
-    return {"ok": True, "playlist": playlist["name"], "song_count": len(ids) + 1}
+    return {"ok": True, "playlist": playlist["name"], "song_count": len(ids) + 1,
+            **_length_info(ctx, ids + [song_id])}
 
 
 @tool
@@ -872,8 +931,10 @@ def remove_song_from_playlist(ctx: AgentContext, song_id: int, playlist_id: str)
     ids = playlist["song_ids"]
     if song_id not in ids:
         return _error(f'Song {song_id} is not in "{playlist["name"]}".')
-    _save_songs(ctx, store, playlist, [i for i in ids if i != song_id])
-    return {"ok": True, "playlist": playlist["name"], "song_count": len(ids) - 1}
+    kept = [i for i in ids if i != song_id]
+    _save_songs(ctx, store, playlist, kept)
+    return {"ok": True, "playlist": playlist["name"], "song_count": len(ids) - 1,
+            **_length_info(ctx, kept)}
 
 
 @tool
@@ -892,6 +953,32 @@ def remove_artist_from_playlist(ctx: AgentContext, artist: str, playlist_id: str
     keep = [i for i in ids if not (ctx.song(i) and _same(ctx.song(i)["artist"], artist))]
     if len(keep) == len(ids):
         return _error(f'No songs by "{artist}" in "{playlist["name"]}".')
+    _save_songs(ctx, store, playlist, keep)
+    return {"ok": True, "playlist": playlist["name"], "removed": len(ids) - len(keep),
+            "song_count": len(keep)}
+
+
+@tool
+def remove_duplicates_from_playlist(ctx: AgentContext, playlist_id: str) -> Dict:
+    """Removes repeated songs from any playlist OR auto-generated mix (it works on both). The first copy of each song stays
+    where it is; later copies are dropped. In a mix, new songs that fit it are added at
+    the end to replace them.
+    Args:
+        playlist_id: the id of the playlist or mix
+    """
+    store = ctx.load_store()
+    playlist, problem = _playlist(ctx, store, playlist_id)
+    if problem:
+        return problem
+    ids = playlist["song_ids"]
+    if len(set(ids)) == len(ids):
+        return _error(f'"{playlist["name"]}" has no duplicate songs.')
+    if playlist.get("kind") == "auto":
+        removed = plib.remove_duplicates_from_mix(store, playlist_id, ctx.songs)
+        ctx.save_store(store)
+        return {"ok": True, "playlist": playlist["name"], "removed": removed,
+                "song_count": len(playlist["song_ids"])}
+    keep = list(dict.fromkeys(ids))
     _save_songs(ctx, store, playlist, keep)
     return {"ok": True, "playlist": playlist["name"], "removed": len(ids) - len(keep),
             "song_count": len(keep)}
@@ -970,7 +1057,9 @@ def move_song_in_playlist(ctx: AgentContext, song_id: int, playlist_id: str, pos
 @tool
 def read_queue(ctx: AgentContext) -> Dict:
     """Returns what is playing now and the songs up next in order, each with its 1-based
-    position in up next (1 plays next). Also says the repeat mode and whether shuffle is on.
+    position in up next (1 plays next). Also says the repeat mode, whether shuffle is on,
+    and (as "playing_from") which playlist or mix the queue was started from, with its id,
+    so "the current mix" or "this playlist" can be edited with the playlist tools.
     """
     queue, problem = _active_queue(ctx)
     if problem:
@@ -989,6 +1078,9 @@ def read_queue(ctx: AgentContext) -> Dict:
         "repeat": queue.repeat,
         "shuffle": queue.shuffle,
     }
+    source = ctx.load_store()["playlists"].get(queue.source) if queue.source else None
+    if source:
+        result["playing_from"] = {"id": source["id"], "name": source["name"], "kind": source["kind"]}
     if len(queue.up_next) > MAX_QUEUE_SHOWN:
         result["note"] = f"Only the first {MAX_QUEUE_SHOWN} up next songs are shown."
     return result

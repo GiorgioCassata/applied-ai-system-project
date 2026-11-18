@@ -66,7 +66,7 @@ def test_corrupt_file_gives_no_profile_and_clear_removes_it(tmp_path):
     up.clear_profile(path)  # clearing again is fine
 
 
-# --- the "Made for You" mix ---
+# --- the "For You" mix ---
 
 PREFS = {"genre": "lofi", "mood": "chill", "energy": 0.35, "valence": 0.6,
          "tempo_bpm": 72, "likes_acoustic": True}
@@ -77,7 +77,7 @@ def test_made_for_you_mix_follows_the_profile_and_comes_first_at_home():
     plib.refresh_auto_playlists(store, CATALOG, NOW, user_prefs=PREFS)
 
     mix = store["playlists"][plib.YOU_MIX_ID]
-    assert mix["name"] == "Made for You" and mix["profile"] == PREFS and mix["song_ids"]
+    assert mix["name"] == "For You" and mix["profile"] == PREFS and mix["song_ids"]
     assert plib.recommended_playlists(store, NOW)[0]["id"] == plib.YOU_MIX_ID
 
 

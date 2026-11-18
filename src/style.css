@@ -292,6 +292,8 @@ section[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"] { di
     position: absolute; left: calc(50% + 17px); top: calc(50% + 4px); transform: translate(-50%, -50%);
     width: 40% !important; min-width: 300px; flex: none;
 }
+/* Hidden button that web/search_enter.js clicks to repeat the same search */
+[class*="st-key-top_bar"] .st-key-search_go { display: none; }
 /* Clear (x) button inside the right end of the search pill; hidden while it is empty */
 [class*="st-key-top_bar"] .st-key-search_clear {
     position: absolute; right: 6px; top: 6px; width: auto; height: 30px; z-index: 2;

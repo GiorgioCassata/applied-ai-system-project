@@ -8,7 +8,7 @@ EXPECTED_TOOLS = {
     "find_song", "read_song", "list_playlists", "read_playlist", "find_index",
     "create_playlist", "save_mix_as_playlist", "regenerate_mix", "delete_playlist",
     "rename_playlist", "add_song_to_playlist", "remove_song_from_playlist",
-    "search_songs", "set_play_mode", "set_shuffle", "remove_artist_from_playlist", "remove_song_from_mix", "remove_artist_from_mix",
+    "search_songs", "set_play_mode", "set_shuffle", "remove_artist_from_playlist", "remove_duplicates_from_playlist", "remove_song_from_mix", "remove_artist_from_mix",
     "move_song_in_playlist", "read_queue",
     "find_songs_by_feel", "list_genres_and_moods", "find_album", "play_album", "play_playlist", "play_song", "add_song_to_queue", "play_song_next", "remove_song_from_queue",
     "remove_artist_from_queue", "move_song_in_queue",
@@ -313,6 +313,32 @@ def test_remove_artist_from_playlist(ctx, store, user_playlist):
     assert nothing["ok"] is False
 
 
+def test_remove_duplicates_from_playlist(ctx, store, user_playlist):
+    nothing = run_tool(ctx, "remove_duplicates_from_playlist", {"playlist_id": user_playlist})
+    assert nothing["ok"] is False
+    store["playlists"][user_playlist]["song_ids"] = [1, 2, 1, 3, 2]
+    result = run_tool(ctx, "remove_duplicates_from_playlist", {"playlist_id": user_playlist})
+    assert result["ok"] and result["removed"] == 2 and result["song_count"] == 3
+    assert store["playlists"][user_playlist]["song_ids"] == [1, 2, 3]
+
+
+def test_remove_duplicates_from_mix(ctx, store, auto_mix):
+    store["playlists"][auto_mix]["song_ids"].append(1)  # a second copy of song 1
+    result = run_tool(ctx, "remove_duplicates_from_playlist", {"playlist_id": auto_mix})
+    ids = store["playlists"][auto_mix]["song_ids"]
+    assert result["ok"] and result["removed"] == 1
+    assert ids[:3] == [1, 2, 3] and len(ids) == len(set(ids))  # new songs only go at the end
+    assert result["song_count"] == len(ids)
+    assert run_tool(ctx, "remove_duplicates_from_playlist", {"playlist_id": auto_mix})["ok"] is False
+
+
+def test_a_playlist_can_be_given_by_name_instead_of_id(ctx, store, user_playlist):
+    name = store["playlists"][user_playlist]["name"]
+    result = run_tool(ctx, "remove_song_from_playlist", {"song_id": 2, "playlist_id": name.upper()})
+    assert result["ok"] and store["playlists"][user_playlist]["song_ids"] == [1, 3]
+    assert run_tool(ctx, "remove_song_from_playlist", {"song_id": 2, "playlist_id": "No Such"})["ok"] is False
+
+
 def test_move_song_in_playlist(ctx, store, user_playlist):
     run_tool(ctx, "add_song_to_playlist", {"song_id": 4, "playlist_id": user_playlist})
 
@@ -480,6 +506,14 @@ def test_read_queue(ctx, queue_box):
     assert result["now_playing"]["id"] == 1
     assert [(s["id"], s["position"]) for s in result["up_next"]] == [(2, 1), (3, 2)]
     assert result["up_next_count"] == 2 and result["repeat"] == "off" and result["shuffle"] is False
+
+
+def test_read_queue_says_which_playlist_is_playing(ctx, store, user_playlist, queue_box):
+    queue_box["queue"] = PlayQueue([1, 2, 3], 0, source=user_playlist, repeat="off")
+    playing_from = run_tool(ctx, "read_queue", {})["playing_from"]
+    assert playing_from["id"] == user_playlist and playing_from["kind"] == "user"
+    queue_box["queue"] = PlayQueue([1, 2, 3], 0, repeat="off")
+    assert "playing_from" not in run_tool(ctx, "read_queue", {})
 
 
 def test_read_queue_shows_a_limited_number_of_songs(ctx, queue_box):

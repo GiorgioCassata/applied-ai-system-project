@@ -350,6 +350,31 @@ def remove_from_mix(
     return len(gone)
 
 
+def remove_duplicates_from_mix(
+    store: Dict, pid: str, songs: List[Dict], rng: Optional[random.Random] = None,
+) -> int:
+    """Drops repeated songs from an auto mix, keeping the first copy of each. Fresh songs
+    that fit the mix's profile are added at the end until it is as long (in time) as it
+    was. Returns how many songs were removed (0 for a non-mix, or a mix without repeats)."""
+    playlist = store["playlists"].get(pid)
+    if not playlist or playlist.get("kind") != "auto":
+        return 0
+    ids = playlist["song_ids"]
+    keep = list(dict.fromkeys(ids))
+    if len(keep) == len(ids):
+        return 0
+    by_id = {s["id"]: s for s in songs}
+    seen, removed_seconds = set(), 0
+    for i in ids:
+        if i in seen and i in by_id:
+            removed_seconds += _seconds(by_id[i])  # an extra copy
+        seen.add(i)
+    removed = len(ids) - len(keep)
+    playlist["song_ids"] = keep
+    playlist["song_ids"] += _top_up(playlist, songs, removed_seconds, rng or random.Random())
+    return removed
+
+
 def _allowed_songs(playlist: Dict, songs: List[Dict]) -> List[Dict]:
     """The songs a mix may use: not removed from it, and not by an artist removed from it."""
     bad_ids = set(playlist.get("excluded_song_ids", []))
@@ -432,8 +457,8 @@ YOU_MIX_ID = "auto-you"  # the mix built from the listener's own profile
 
 def _auto_specs(songs: List[Dict], genre_tiles: int, user_prefs: Optional[Dict] = None):
     """Every auto playlist as (id, name, group, profile), in display order. With
-    user_prefs (the listener's saved profile) a "Made for You" mix comes first."""
-    specs = [(YOU_MIX_ID, "Made for You", "you", user_prefs)] if user_prefs else []
+    user_prefs (the listener's saved profile) a "For You" mix comes first."""
+    specs = [(YOU_MIX_ID, "For You", "you", user_prefs)] if user_prefs else []
     specs += [(f"auto-time-{pid}", title, "time", profile) for pid, title, _s, profile in DAYPARTS]
     specs += [(f"auto-act-{pid}", title, "activity", profile) for pid, title, profile in ACTIVITIES]
     counts: Dict[str, int] = {}
@@ -449,7 +474,7 @@ def refresh_auto_playlists(
     user_prefs: Optional[Dict] = None,
 ) -> bool:
     """Creates auto playlists that are missing and regenerates ones whose slot is
-    out of date (a new day). With user_prefs, the "Made for You" mix is kept in step with
+    out of date (a new day). With user_prefs, the "For You" mix is kept in step with
     the listener's profile (and removed when there is none). Returns True when the store
     changed (caller saves)."""
     now = now or datetime.now()
@@ -550,7 +575,7 @@ DAYPART_ACTIVITY = {
 
 
 def _recommended_base(store: Dict, now: Optional[datetime]) -> List[Dict]:
-    """The recommended playlists that are always first: "Made for You" (if the listener has
+    """The recommended playlists that are always first: "For You" (if the listener has
     set up a profile), the auto mix for this time of day, and the activity mix that suits
     it (DAYPART_ACTIVITY). Anything missing from the store is skipped."""
     daypart = current_daypart(now or datetime.now())
@@ -603,7 +628,7 @@ def create_song_mix(
 
 def recommended_playlists(store: Dict, now: Optional[datetime] = None, limit: int = 6) -> List[Dict]:
     """The home page's recommended playlists, in order:
-    0. "Made for You", if the listener has set up a profile,
+    0. "For You", if the listener has set up a profile,
     1. the auto mix for the current time of day,
     2. the activity mix that suits this time of day (DAYPART_ACTIVITY),
     3. the temporary mixes made with "create a mix with this song", newest first,

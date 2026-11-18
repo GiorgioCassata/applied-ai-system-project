@@ -291,3 +291,42 @@ def test_move_up_next_only_moves_songs_that_are_up_next():
     assert not queue.move_up_next(2, 1)  # playing now
     assert not queue.move_up_next(99, 1)  # not queued
     assert queue.songs == [1, 2, 3]
+
+
+def _playing(n=QUEUE_AHEAD + 5, shuffle=False):
+    store = {"playlists": {}, "recent": []}
+    ids = [s["id"] for s in SONGS[:n]]
+    pid = plib.create_playlist(store, "mine", ids, SONGS)
+    queue = PlayQueue.start(ids[0], SONGS, store["playlists"][pid], repeat="off", shuffle=shuffle)
+    return queue, ids
+
+
+def test_sync_collection_drops_removed_songs_and_keeps_the_current_one_playing():
+    queue, ids = _playing()
+    queue.advance(1, SONGS)
+    current = queue.current_id
+    queue.sync_collection([i for i in ids if i not in (ids[1], ids[3])], SONGS)
+    assert queue.current_id == current
+    assert ids[3] not in queue.up_next and ids[1] not in queue.up_next
+    assert queue.up_next == [i for i in ids[2:] if i != ids[3]]
+
+
+def test_sync_collection_adds_new_songs_and_follows_a_new_order():
+    queue, ids = _playing(6)
+    extra = SONGS[10]["id"]
+    queue.sync_collection([ids[0], extra, ids[3], ids[1], ids[2], ids[4], ids[5]], SONGS)
+    assert queue.current_id == ids[0]
+    assert queue.up_next == [extra, ids[3], ids[1], ids[2], ids[4], ids[5]]
+    assert queue.base == [ids[0], extra, ids[3], ids[1], ids[2], ids[4], ids[5]]
+
+
+def test_sync_collection_keeps_songs_queued_by_hand_and_works_when_shuffled():
+    queue, ids = _playing(6)
+    queue.play_next(SONGS[20]["id"])
+    queue.sync_collection(ids[:3], SONGS)
+    assert queue.up_next[0] == SONGS[20]["id"]
+    shuffled, ids = _playing(6, shuffle=True)
+    extra = SONGS[10]["id"]
+    shuffled.sync_collection(ids[:4] + [extra], SONGS)
+    assert extra in shuffled.up_next
+    assert not set(shuffled.up_next) & set(ids[4:])
