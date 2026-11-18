@@ -140,7 +140,7 @@ def _hues(gradient):
     return [int(h) for h in re.findall(r"hsl\((\d+),", gradient)]
 
 
-def test_gradient_bottom_right_is_never_near_the_green_accent():
+def test_gradient_bottom_right_is_never_near_the_primary_colour():
     seeds = [f"seed-{n}" for n in range(5000)] + [f"{n:08x}" for n in range(5000)]
     seeds += ["auto-genre-r&b", "auto-genre-easy listening", "auto-time-morning", ""]
     for seed in seeds:

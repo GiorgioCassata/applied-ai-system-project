@@ -493,6 +493,15 @@ def web_fragment(name):
     return "\n".join(parts)
 
 
+def _bpm(song):
+    """A song's tempo as a number for the visualizer (it colours itself to the beat); 0 when
+    the library has none."""
+    try:
+        return round(float(song.get("tempo_bpm") or 0), 1)
+    except (TypeError, ValueError):
+        return 0
+
+
 def brand_name_html():
     """APP_NAME for the logo: everything from the first hyphen on is drawn in the accent
     colour (so "Legally Distinct-ify" shows as "Legally Distinct" + "-ify"); a name without a hyphen is plain."""
@@ -1298,7 +1307,7 @@ def render_tile_row(prefix, items, badge=None):
                     unsafe_allow_html=True,
                 )
                 # Clicking anywhere on the card opens the playlist (invisible button
-                # covering the card), and the green button in the corner plays it.
+                # covering the card), and the primary-colour button in the corner plays it.
                 st.button(
                     p["name"], key=keys["open"],
                     on_click=open_view, args=("playlist", p["id"]),
@@ -1649,7 +1658,7 @@ def finish_agent_job():
 
 
 def chat_html(messages):
-    """The whole conversation as one block of HTML: user messages are light green
+    """The whole conversation as one block of HTML: user messages are light orange
     bubbles on the right, system messages white bubbles on the left (roles other than
     "user" are drawn as system messages). The last element carries the message count,
     which CHAT_SCROLL_JS watches to scroll down when a message is added."""
@@ -2007,8 +2016,8 @@ now_song = next(
 )
 with st.container(key="player_bar"):
     # One compact row: song info | (transport buttons over seek/volume)
-    info_col, center_col, chat_col, queue_col, volume_col = st.columns(
-        [2, 5, 1, 1, 2], vertical_alignment="center"
+    info_col, center_col, viz_col, chat_col, queue_col, volume_col = st.columns(
+        [2, 5, 1, 1, 1, 2], vertical_alignment="center"
     )
     with info_col:
         if now_song:
@@ -2024,7 +2033,7 @@ with st.container(key="player_bar"):
                 else '<div class="np-art np-art-empty">?</div>'
             )
             st.markdown(
-                f'<div class="np-info">{art_html}<div class="np-text">'
+                f'<div class="np-info" data-bpm="{_bpm(now_song)}">{art_html}<div class="np-text">'
                 f'<div class="np-title" title="Show the play queue">{now_song["title"]}</div>'
                 f'<div class="np-artist" title="Open the artist page">{now_song["artist"]}</div>'
                 f'</div></div>',
@@ -2065,8 +2074,10 @@ with st.container(key="player_bar"):
         # "audio_slot" below): copying a song's file from the share can take seconds, and
         # nothing should have to wait for that, least of all the queue panel.
         audio_slot = st.empty()
-    # Right side: the chat and queue buttons, then the volume, pushed to the right edge of
+    # Right side: the visualizer, chat and queue buttons, then the volume, pushed to the right edge of
     # the bar. The buttons are plain HTML (see PANEL_TOGGLE_JS), not Streamlit buttons.
+    with viz_col:
+        st.html('<button id="viz-toggle" title="Show the visualizer" aria-label="Visualizer"></button>')
     with chat_col:
         st.html('<button id="chat-toggle" title="Show or hide the chat" aria-label="Chat"></button>')
     with queue_col:
@@ -2079,6 +2090,7 @@ with st.container(key="player_bar"):
 render_queue_panel()
 render_chat_panel()
 st.html(PANEL_TOGGLE_JS, unsafe_allow_javascript=True)
+st.html(web_fragment("visualizer"), unsafe_allow_javascript=True)
 st.html(QUEUE_SCROLL_JS, unsafe_allow_javascript=True)
 st.html(CHAT_SCROLL_JS, unsafe_allow_javascript=True)
 st.html(web_fragment("native_hints"), unsafe_allow_javascript=True)

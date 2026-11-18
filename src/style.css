@@ -1,6 +1,6 @@
-:root { --green: #17A173; --green-hover: #1BBB86; --card: #181818; --card-hover: #282828; }
+:root { --primary: #c07218; --primary-hover: #d38b17; --accent: #eaa262; --accent-text: #3a1a00; --card: #181818; --card-hover: #282828; }
 
-.stApp { background: linear-gradient(180deg, #1f2a1b 0%, #121212 220px); }
+.stApp { background: linear-gradient(180deg, #2b2018 0%, #121212 220px); }
 header[data-testid="stHeader"] { background: transparent; }
 /* Streamlit's own header is a fixed, transparent 60px strip that sits over the page
    and swallows clicks just below our (shorter) top bar. Our bar replaces it, so let
@@ -12,7 +12,7 @@ header[data-testid="stHeader"], [data-testid="stAppHeader"], [data-testid="stHea
 
 h1, h2, h3 { font-weight: 800 !important; letter-spacing: -0.02em; }
 .brand { font-size: 2rem; font-weight: 900; letter-spacing: -0.04em; }
-.brand span { color: var(--green); }
+.brand span { color: var(--primary); }
 .brand-icon { width: 1em; height: 1em; fill: #fff; margin-right: 0.3em; flex: none; }
 .greeting { font-size: 2rem; font-weight: 1000; margin: 0.5rem 0 1rem; }
 
@@ -367,7 +367,7 @@ div[data-testid="stTextInput"] input {
 }
 div[data-testid="stTextInput"] input:focus { border-color: #fff; box-shadow: none; }
 /* Streamlit wraps each input in two BaseWeb boxes that have their own background
-   and a focus outline in the theme's primaryColor (green). Make them invisible
+   and a focus outline in the theme's primaryColor. Make them invisible
    so only the pill-shaped input itself shows. */
 div[data-testid="stTextInput"] div[data-testid="stTextInputRootElement"],
 div[data-testid="stTextInput"] div[data-baseweb="input"],
@@ -385,18 +385,18 @@ div[data-testid="stTextInput"] div[data-baseweb="base-input"]:focus-within {
 /* The pill's own focus border (white); keep it on the input only */
 div[data-testid="stTextInput"] input:focus { outline: none !important; }
 
-/* Buttons: green pills */
+/* Buttons: primary-colour pills */
 .stButton > button[kind="primary"], .stButton > button[data-testid="stBaseButton-primary"] {
-    background: var(--green); color: #000; border: none; border-radius: 999px;
+    background: var(--primary); color: #000; border: none; border-radius: 999px;
     font-weight: 700; padding: 0.6rem 1.5rem;
 }
 .stButton > button[kind="primary"]:hover,
 .stButton > button[data-testid="stBaseButton-primary"]:hover {
-    background: var(--green-hover); transform: scale(1.04); color: #000;
+    background: var(--primary-hover); transform: scale(1.04); color: #000;
 }
 
 /* "Edit" on one of your playlists, "Save playlist" on an auto one: a grey pill next to
-   the green Play pill */
+   the primary-colour Play pill */
 .st-key-vedit button, .st-key-vsave button {
     background: #3a3a3a; color: #fff; border: none; border-radius: 999px;
     font-weight: 700; padding: 0.6rem 1.5rem;
@@ -526,19 +526,23 @@ div[data-testid="stTextInput"] input:focus { outline: none !important; }
 }
 [class*="st-key-vplay_"] button:hover { background: #444; }
 .track-title { font-weight: 600; }
-.track-title.playing { color: var(--green); }
+.track-title.playing { color: var(--primary); }
 .track-sub { color: #b3b3b3; font-size: 0.85rem; }
 /* Queue and chat buttons (player bar). They are plain HTML buttons, not Streamlit
    buttons: a click only sets data-right-panel on <html> (see PANEL_TOGGLE_JS), so the
    panel opens at once instead of waiting for Streamlit to rerun the whole app. The icon
    is drawn with a CSS mask: queue = a vertical stack of wide bars, chat = a speech
-   bubble. No fill or border, so the button blends into the bar; green while open. */
-#queue-toggle, #chat-toggle {
+   bubble. No fill or border, so the button blends into the bar; primary colour while open. */
+#viz-toggle, #queue-toggle, #chat-toggle {
     width: 22px; height: 22px; padding: 0; border: none; outline: none; cursor: pointer;
     background: transparent; display: flex; align-items: center; justify-content: center;
 }
-#queue-toggle::before, #chat-toggle::before {
+#viz-toggle::before, #queue-toggle::before, #chat-toggle::before {
     content: ""; width: 16px; height: 16px; background: #b3b3b3;
+}
+#viz-toggle::before {
+    -webkit-mask: url("assets/icons/eye.svg") center / contain no-repeat;
+    mask: url("assets/icons/eye.svg") center / contain no-repeat;
 }
 #queue-toggle::before {
     -webkit-mask: url("assets/icons/queue.svg") center / contain no-repeat;
@@ -548,9 +552,25 @@ div[data-testid="stTextInput"] input:focus { outline: none !important; }
     -webkit-mask: url("assets/icons/chat.svg") center / contain no-repeat;
     mask: url("assets/icons/chat.svg") center / contain no-repeat;
 }
-#queue-toggle:hover::before, #chat-toggle:hover::before { background: #fff; }
+#viz-toggle:hover::before, #queue-toggle:hover::before, #chat-toggle:hover::before { background: #fff; }
+/* The visualizer (see web/visualizer.js): a full-screen overlay over everything, with the
+   song's art, title and artist at the bottom left, a little larger than in the player bar. */
+#viz-overlay { display: none; position: fixed; inset: 0; z-index: 2000000; background: #000; cursor: pointer; }
+#viz-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#viz-info { position: absolute; left: 32px; bottom: 32px; display: flex; align-items: center; gap: 18px; max-width: 70vw; }
+#viz-art img, #viz-art .viz-art-empty {
+    width: 96px; height: 96px; display: block; border-radius: 6px; object-fit: cover;
+    box-shadow: 0 4px 16px rgba(0,0,0,.6);
+}
+#viz-art .viz-art-empty {
+    display: flex; align-items: center; justify-content: center;
+    background: #282828; font-size: 2.2rem; font-weight: 700; color: #777;
+}
+#viz-text { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+#viz-title { font-weight: 700; font-size: 1.4rem; line-height: 1.2; color: #fff; }
+#viz-artist { color: #b3b3b3; font-size: 1.05rem; line-height: 1.2; }
 html[data-right-panel="queue"] #queue-toggle::before,
-html[data-right-panel="chat"] #chat-toggle::before { background: var(--green); }
+html[data-right-panel="chat"] #chat-toggle::before { background: var(--primary); }
 /* Right-hand panels (queue and chat; only one is open at a time): fixed on the right
    between the top bar and the player bar. Both are always on the page, parked off the
    right edge and hidden; opening one just slides it in (a CSS transition on the
@@ -618,7 +638,7 @@ html[data-right-panel="chat"] [class*="st-key-chat_panel"] {
 }
 [class*="st-key-chat_new"] button:hover { background: #2a2a2a !important; }
 [class*="st-key-chat_new"] button:hover::before { background: #fff; }
-/* Conversation bubbles, like a support chat: yours are light green on the right, the
+/* Conversation bubbles, like a support chat: yours are light orange (--accent) on the right, the
    system's are white on the left; the corner next to the sender is squarer. */
 .chat-row { display: flex; margin: 0 0 0.6rem; }
 .chat-row.user { justify-content: flex-end; }
@@ -629,7 +649,7 @@ html[data-right-panel="chat"] [class*="st-key-chat_panel"] {
     padding: 8px 12px; border-radius: 16px; font-size: 0.9rem; line-height: 1.35;
     white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.chat-row.user .chat-bubble { background: #b9f6ca; color: #0b2e13; border-bottom-right-radius: 4px; }
+.chat-row.user .chat-bubble { background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 4px; }
 .chat-row.system .chat-bubble { background: #ffffff; color: #111; border-bottom-left-radius: 4px; }
 /* The page makes room for the panel over the same 0.4s, so it slides over smoothly */
 .block-container { transition: padding-right 0.4s ease-out, padding-left 0.3s ease; }
@@ -658,7 +678,7 @@ html[data-right-panel] .block-container {
 .rec-cell .alb-thumb { flex: none; }
 .rec-cell .track-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Home playlist cards: the whole card opens the playlist (invisible "abtn" button),
-   and a compact green play button sits in the bottom right corner.
+   and a compact primary-colour play button sits in the bottom right corner.
 
    Two families of key names are styled here and must never overlap, because these
    selectors match by substring: tiles are pcard_<row>_<n> / pplay_<row>_<n> (see
@@ -686,11 +706,11 @@ html[data-right-panel] .block-container {
 }
 [class*="st-key-pplay"] button, [class*="st-key-cplay"] button {
     width: 40px; height: 40px; min-height: 0; padding: 0; border: none; border-radius: 50%;
-    background: var(--green); color: #000; box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    background: var(--primary); color: #000; box-shadow: 0 4px 12px rgba(0,0,0,.4);
     transition: transform .1s, background .1s;
 }
 [class*="st-key-pplay"] button:hover, [class*="st-key-cplay"] button:hover {
-    background: var(--green-hover); transform: scale(1.08); color: #000;
+    background: var(--primary-hover); transform: scale(1.08); color: #000;
 }
 /* Styling Streamlit's own icon element did not change its size, so the button's label
    is hidden and the triangle is drawn here instead (a CSS mask, like the player bar's
@@ -832,9 +852,9 @@ html[data-right-panel] .block-container {
 .np-scrub input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: #4d4d4d; }
 .np-scrub input[type=range]::-moz-range-progress { height: 4px; border-radius: 2px; background: #fff; }
 .np-scrub input[type=range]:hover::-webkit-slider-runnable-track {
-    background: linear-gradient(to right, #17A173 var(--p, 0%), #4d4d4d var(--p, 0%));
+    background: linear-gradient(to right, var(--primary) var(--p, 0%), #4d4d4d var(--p, 0%));
 }
-.np-scrub input[type=range]:hover::-moz-range-progress { background: #17A173; }
+.np-scrub input[type=range]:hover::-moz-range-progress { background: var(--primary); }
 .np-scrub input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none; appearance: none; width: 12px; height: 12px; margin-top: -2px;
     border: none; border-radius: 50%; background: #fff; opacity: 0;
@@ -887,7 +907,7 @@ html[data-right-panel] .block-container {
     letter-spacing: 0.04em; text-transform: uppercase; vertical-align: middle;
 }
 .queue-note {
-    background: #181818; border-left: 3px solid #17A173; border-radius: 4px;
+    background: #181818; border-left: 3px solid var(--primary); border-radius: 4px;
     padding: 10px 14px; color: #b3b3b3; font-size: 0.85rem; margin: 8px 0 16px;
 }
 .block-container { padding-bottom: 100px; }
@@ -902,7 +922,7 @@ hr { border-color: #282828; }
     background: #242424; border: none; color: #fff; border-radius: 50%;
     width: 32px; height: 32px; min-height: 0; padding: 0;
 }
-[class*="st-key-cadd_"] button:hover:not(:disabled) { background: #17A173; color: #000; }
+[class*="st-key-cadd_"] button:hover:not(:disabled) { background: var(--primary); color: #000; }
 [class*="st-key-cdel_"] button:hover { background: #3a2222; color: #ff4d4f; }
 [class*="st-key-cadd_"] button:disabled { opacity: 0.5; }
 [class*="st-key-cadd_"], [class*="st-key-cdel_"] { display: flex; justify-content: flex-end; }
@@ -1037,8 +1057,8 @@ div[data-baseweb="popover"] { z-index: 1000003 !important; }
     -webkit-mask: var(--icon) center / contain no-repeat; mask: var(--icon) center / contain no-repeat;
 }
 .st-key-shuffle_off button { --icon-color: #fff;    --icon: url("assets/icons/shuffle.svg"); }
-.st-key-shuffle_on button  { --icon-color: #17A173; --icon: url("assets/icons/shuffle.svg"); }
+.st-key-shuffle_on button  { --icon-color: var(--primary); --icon: url("assets/icons/shuffle.svg"); }
 .st-key-repeat_off button      { --icon-color: #b3b3b3; --icon: url("assets/icons/repeat.svg"); }
-.st-key-repeat_all button      { --icon-color: #17A173; --icon: url("assets/icons/repeat.svg"); }
-.st-key-repeat_one button      { --icon-color: #17A173; --icon: url("assets/icons/repeat-one.svg"); }
-.st-key-repeat_autoplay button { --icon-color: #17A173; --icon: url("assets/icons/infinity.svg"); }
+.st-key-repeat_all button      { --icon-color: var(--primary); --icon: url("assets/icons/repeat.svg"); }
+.st-key-repeat_one button      { --icon-color: var(--primary); --icon: url("assets/icons/repeat-one.svg"); }
+.st-key-repeat_autoplay button { --icon-color: var(--primary); --icon: url("assets/icons/infinity.svg"); }

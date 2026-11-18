@@ -493,7 +493,7 @@ def refresh_auto_playlists(
 
 # --- gradients -------------------------------------------------------------------
 
-ACCENT_HUE = 160  # the app's teal-green accent, #17A173, is hsl(160, 75%, 36%)
+ACCENT_HUE = 160  # hue of the app's primary colour (--primary in style.css); keep the two in step
 ACCENT_AVOID = 45  # keep the bottom right colour at least this many degrees from it
 
 
@@ -509,9 +509,9 @@ def generate_gradient(seed) -> str:
 
     The seed picks the first hue (top left) and a second hue 60-160 degrees round the
     colour wheel (bottom right), so the colours are clearly different. The second hue is
-    never within ACCENT_AVOID degrees of the app's green accent, because the green play
+    never within ACCENT_AVOID degrees of the app's primary colour, because the play
     button sits over that corner and would vanish into a similar colour. If the second
-    hue lands in that green zone, the other side of the first hue is tried, and failing
+    hue lands in that zone, the other side of the first hue is tried, and failing
     that it steps round the wheel to the nearest clear colour. Saturation and lightness
     vary a little between gradients."""
     h = zlib.crc32(str(seed).encode("utf-8"))
