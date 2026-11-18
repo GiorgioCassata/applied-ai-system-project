@@ -15,6 +15,16 @@ flowchart TB
         profjson[("user_profile.json<br/>taste profile")]
         artdir[["static/art<br/>cover thumbnails"]]
         nowdir[["static/now<br/>current and next song"]]
+        settingsjson[("agent_settings.json<br/>chosen language model")]
+        tracemd[("ai_interactions.md<br/>Ollama reasoning traces")]
+    end
+
+    %% ---------- Language models ----------
+    subgraph models["Language models"]
+        direction TB
+        ollama["Ollama<br/>local model"]
+        gemini["Gemini<br/>cloud API"]
+        mock["Mock<br/>scripted, for tests"]
     end
 
     %% ---------- Front-end assets ----------
@@ -49,6 +59,11 @@ flowchart TB
             searchlib["search.py<br/>matches text to songs"]
             proflib["user_profile.py<br/>the listener's taste"]
             artlib["album_art.py<br/>finds files and cover art"]
+            agent["music_agent.py<br/>tool-calling loop, guard rails<br/>(runs in a background AgentJob)"]
+            tools["agent_tools.py<br/>tools the agent can call"]
+            llm["llm_client.py<br/>one interface over the models"]
+            asettings["agent_settings.py<br/>which model to use"]
+            prompt["prompts/system_prompt.txt"]
         end
 
         static["Static file server<br/>/app/static"]
@@ -65,6 +80,8 @@ flowchart TB
     appbox --> searchlib
     appbox --> proflib
     appbox --> artlib
+    panels --> agent
+    appbox --> asettings
 
     %% ---------- Modules use each other ----------
     plib --> recsys
@@ -72,11 +89,27 @@ flowchart TB
     queue --> plib
     proflib --> plib
 
+    %% ---------- Chat agent ----------
+    prompt --> agent
+    agent --> llm
+    agent --> tools
+    tools --> queue
+    tools --> plib
+    tools --> searchlib
+    tools --> recsys
+    tools --> proflib
+    asettings --> llm
+    llm <--> ollama
+    llm <--> gemini
+    llm --> mock
+
     %% ---------- Storage ----------
     csv --> recsys
     plib <--> pljson
     proflib <--> profjson
     artlib --> music
+    asettings <--> settingsjson
+    agent --> tracemd
 
     %% ---------- Audio and art delivery ----------
     music --> stage
@@ -96,8 +129,9 @@ flowchart TB
     classDef actor fill:#581c87,stroke:#c084fc,color:#faf5ff;
     classDef asset fill:#78350f,stroke:#fbbf24,color:#fffbeb;
 
-    class music,csv,pljson,profjson,artdir,nowdir store;
+    class music,csv,pljson,profjson,artdir,nowdir,settingsjson,tracemd store;
     class topbar,views,player,panels,menus,session,stage,cache,static ui;
-    class recsys,queue,plib,searchlib,proflib,artlib,cli logic;
+    class recsys,queue,plib,searchlib,proflib,artlib,agent,tools,llm,asettings,prompt logic;
+    class ollama,gemini,mock actor;
     class css,icons,web asset;
     class user actor;
