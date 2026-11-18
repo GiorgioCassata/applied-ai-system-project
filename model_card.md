@@ -1,6 +1,6 @@
 # Model Card: Legally Distinct-ify and its AI DJ
 
-This card covers the responsible-AI side of Legally Distinct-ify: the FlowFinder recommender that scores songs, and "Wabi-Sabi", the chat agent that manages the library through tools.
+This card covers the responsible-AI side of Legally Distinct-ify: the FlowFinder recommender that scores songs, and "Pulse", the chat agent that manages the library through tools.
 
 ## Limitations and Biases
 

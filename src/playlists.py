@@ -317,6 +317,69 @@ def build_song_mix(
     return [s["id"] for s in picked]
 
 
+def remove_from_mix(
+    store: Dict, pid: str, songs: List[Dict], song_id: Optional[int] = None,
+    artist: Optional[str] = None, rng: Optional[random.Random] = None,
+) -> int:
+    """Takes one song (song_id) or every song by an artist (artist) out of an auto mix.
+    The rest close up to fill the gap, and fresh songs that fit the mix's profile are
+    added at the end until the mix is as long (in time) as it was.
+
+    What was removed is remembered on the mix (excluded_song_ids / excluded_artists), so
+    neither the top-up nor "regenerate" brings it back. Returns how many songs were
+    removed (0 for anything that is not an auto mix, or a song/artist not in it)."""
+    playlist = store["playlists"].get(pid)
+    if not playlist or playlist.get("kind") != "auto":
+        return 0
+    by_id = {s["id"]: s for s in songs}
+    ids = playlist["song_ids"]
+    if artist is not None:
+        gone = [i for i in ids if i in by_id and by_id[i]["artist"] == artist]
+        playlist.setdefault("excluded_artists", [])
+        if artist not in playlist["excluded_artists"]:
+            playlist["excluded_artists"].append(artist)
+    else:
+        gone = [i for i in ids if i == song_id]
+        if song_id is not None and song_id not in playlist.setdefault("excluded_song_ids", []):
+            playlist["excluded_song_ids"].append(song_id)
+    if not gone:
+        return 0
+    removed_seconds = sum(_seconds(by_id[i]) for i in gone if i in by_id)
+    playlist["song_ids"] = [i for i in ids if i not in gone]  # the rest close up
+    playlist["song_ids"] += _top_up(playlist, songs, removed_seconds, rng or random.Random())
+    return len(gone)
+
+
+def _allowed_songs(playlist: Dict, songs: List[Dict]) -> List[Dict]:
+    """The songs a mix may use: not removed from it, and not by an artist removed from it."""
+    bad_ids = set(playlist.get("excluded_song_ids", []))
+    bad_artists = set(playlist.get("excluded_artists", []))
+    return [s for s in songs if s["id"] not in bad_ids and s["artist"] not in bad_artists]
+
+
+def _top_up(playlist: Dict, songs: List[Dict], seconds: int, rng: random.Random) -> List[int]:
+    """Ids of songs that fit the playlist's profile and are not in it yet, worth about
+    `seconds` in all, each the best fit after the one before (like build_mix)."""
+    by_id = {s["id"]: s for s in songs}
+    profile = playlist.get("profile") or {}
+    have = {song_key(by_id[i]) for i in playlist["song_ids"] if i in by_id}
+    candidates = [s for s in _allowed_songs(playlist, songs) if song_key(s) not in have]
+    rng.shuffle(candidates)  # ties are shuffled, not decided by the order of the library
+    candidates.sort(key=lambda s: score_song(profile, s)[0], reverse=True)
+    pool = _unique_songs(candidates)[:POOL_SIZE]
+    last = next((by_id[i] for i in reversed(playlist["song_ids"]) if i in by_id), None)
+    added, total = [], 0
+    while total < seconds and pool:
+        best = recommend_songs(profile, pool, k=1, current_song=last)
+        if not best:
+            break
+        last = best[0][0]
+        added.append(last["id"])
+        total += _seconds(last)
+        pool = [s for s in pool if s["id"] != last["id"]]
+    return added
+
+
 def regenerate_auto_playlist(
     store: Dict, pid: str, songs: List[Dict], rng: Optional[random.Random] = None
 ) -> bool:
@@ -329,6 +392,7 @@ def regenerate_auto_playlist(
     if not playlist or playlist.get("kind") != "auto":
         return False
     rng = rng or random.Random()
+    songs = _allowed_songs(playlist, songs)  # what the listener removed stays out
     by_id = {s["id"]: s for s in songs}
     seed = by_id.get(playlist.get("seed_id"))  # a song mix is rebuilt around its own song
     song_ids = playlist["song_ids"]

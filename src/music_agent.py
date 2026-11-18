@@ -17,6 +17,8 @@ the new song count), so a separate verification pass is usually redundant.
 
 Guard rails, all in code rather than left to the prompt:
     * at most MAX_STEPS model requests per message, then it must answer with what it has
+    * a reply that only asks a question or says "I can't" before any tool was tried gets
+      one push to try first (PUSH); the model's second answer stands either way
     * an exact repeat of a tool call in the same turn is refused (the model is looping)
     * tool errors go back to the model as data, so it can correct itself
     * a failed model request gives a fixed, friendly reply (the conversation is untouched)
@@ -32,6 +34,7 @@ import json
 import os
 import re
 import threading
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -72,10 +75,29 @@ NUDGE = (
     "result said ok."
 )
 
+PUSH = (
+    "[Note from the app, not the listener] You answered without calling any tool. Unless "
+    "the request is off topic, or would delete something, you should try first: pick the "
+    "most sensible reading of what the listener asked, search or act with your tools now, "
+    "and say what you chose. Do not ask permission or say you cannot before you have tried."
+)
+
+# A reply that only asks a question or gives up ("Which one?", "I can't...", "I'm not sure")
+PASSIVE_RE = re.compile(
+    r"\?\s*$|\bi\s+(?:can't|cannot|can\s+not|am\s+not\s+able|am\s+unable|'m\s+unable|'m\s+not\s+(?:able|sure))\b"
+    r"|\bi\s+(?:don't|do\s+not)\s+(?:have|know|see)\b|\bunable\s+to\b",
+    re.IGNORECASE,
+)
+
 
 def claims_action(text: str) -> bool:
     """Whether a reply claims (or promises) that something was done."""
     return bool(CLAIM_RE.search(text or ""))
+
+
+def is_passive(text: str) -> bool:
+    """Whether a reply only asks a question or says it cannot do something."""
+    return bool(PASSIVE_RE.search((text or "").strip()))
 
 
 def _without_thinking(text: str) -> str:
@@ -115,8 +137,9 @@ class MusicAgent:
     """
 
     def __init__(self, client: Any, ctx: "agent_tools.AgentContext",
-                 system_prompt: Optional[str] = None):
+                 system_prompt: Optional[str] = None, trace_path: Optional[str] = None):
         self.client = client
+        self.trace_path = trace_path  # if set, each step's reasoning is appended to this file
         self.ctx = ctx
         self.system_prompt = system_prompt or _load_prompt("system_prompt.txt")
         self.logs: List[Dict[str, Any]] = []  # what happened, for debugging
@@ -137,9 +160,12 @@ class MusicAgent:
         new: List[Dict] = [{"role": "user", "content": user_text}]
         messages = [{"role": "system", "content": self.system_prompt}] + _trim(history or []) + new
         tools = agent_tools.tool_schemas()
+        self._trace(f"\n## {datetime.now():%Y-%m-%d %H:%M:%S} - {user_text}\n")
         seen_calls = set()
         acted = False  # has an action tool succeeded this turn?
         nudged = False  # has the model been told off for an unbacked claim?
+        pushed = False  # has the model been told to try instead of asking or giving up?
+        used_tools = False  # has any tool been called this turn?
 
         for step in range(MAX_STEPS):
             # On the last step no tools are offered, which forces a plain-text answer
@@ -147,7 +173,10 @@ class MusicAgent:
                 return AgentResult("", new, ok=False)
             last = step == MAX_STEPS - 1
             response = self.client.chat(messages, None if last else tools)
+            if response.thinking:
+                self._trace(f"\n### Step {step + 1}: reasoning\n\n{response.thinking}\n")
             if response.error:
+                self._trace(f"\n### Step {step + 1}: error\n\n{response.error}\n")
                 self._log("error", response.error)
                 return AgentResult(FALLBACK_REPLY, new, ok=False)
 
@@ -165,9 +194,18 @@ class MusicAgent:
                         messages.append({"role": "user", "content": NUDGE})
                         continue
                     reply = UNDONE_REPLY
+                elif is_passive(reply) and not used_tools and not pushed and not last:
+                    # Asked or gave up without trying anything: one push to try first. If
+                    # it still answers the same way, that answer stands (it may be right).
+                    self._log("passive_reply", reply)
+                    pushed = True
+                    messages.append({"role": "assistant", "content": reply})
+                    messages.append({"role": "user", "content": PUSH})
+                    continue
                 elif not reply:
                     reply = "Done." if acted else EMPTY_REPLY
                 new.append({"role": "assistant", "content": reply})
+                self._trace(f"\n**Reply:** {reply}\n")
                 return AgentResult(reply, new)
 
             assistant = {
@@ -177,6 +215,7 @@ class MusicAgent:
             }
             new.append(assistant)
             messages.append(assistant)
+            used_tools = True
             for call in response.tool_calls:
                 if cancelled():
                     return AgentResult("", new, ok=False)
@@ -188,6 +227,8 @@ class MusicAgent:
                     seen_calls.add(key)
                     result = agent_tools.run_tool(self.ctx, call.name, call.arguments)
                 self._log("tool", {"name": call.name, "arguments": call.arguments, "result": result})
+                self._trace(f"\n- Tool `{call.name}` {json.dumps(call.arguments, default=str)}"
+                            f" -> {json.dumps(result, default=str)}\n")
                 if result.get("ok") and agent_tools.is_action(call.name):
                     acted = True
                 tool_message = {"role": "tool", "name": call.name,
@@ -198,6 +239,16 @@ class MusicAgent:
         # Only reachable if the model still asked for tools on the last (tool-less) step
         new.append({"role": "assistant", "content": GIVE_UP_REPLY})
         return AgentResult(GIVE_UP_REPLY, new, ok=False)
+
+    def _trace(self, text: str) -> None:
+        """Appends to the reasoning trace file; a write problem never breaks the chat."""
+        if not self.trace_path:
+            return
+        try:
+            with open(self.trace_path, "a", encoding="utf-8") as f:
+                f.write(text)
+        except OSError:
+            pass
 
     def _log(self, kind: str, detail: Any) -> None:
         self.logs.append({"type": kind, "detail": detail})

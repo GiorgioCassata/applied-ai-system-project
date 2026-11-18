@@ -20,7 +20,9 @@ from album_art import ART_DIR, ART_URL_PREFIX, art_jpeg_bytes, resolve_audio_pat
 from music_agent import AgentJob, AgentResult, MusicAgent
 from recommender import Recommender, Song, UserProfile, load_songs
 
+APP_NAME = "Legally Distinct-ify"  # the one place the app's name is set (page title and logo)
 SONGS_PATH = Path(__file__).resolve().parent.parent / "data" / "songs.csv"
+TRACE_PATH = str(Path(__file__).resolve().parent.parent / "ai_interactions.md")  # Ollama reasoning traces
 
 
 @st.cache_data
@@ -129,23 +131,34 @@ def start_queue(song_id, playlist=None):
     )
 
 
-def toggle_shuffle():
-    """The shuffle button in the player bar: on, the album / playlist / mix that is playing
-    continues in a random order; off, in its own order again."""
-    st.session_state.shuffle = not st.session_state.get("shuffle", False)
+def set_shuffle_mode(on):
+    """Turns shuffle on or off (the player bar's button and the agent both use this): on,
+    the album / playlist / mix that is playing continues in a random order; off, in its
+    own order again. The setting also applies to the next queue that is started."""
+    st.session_state.shuffle = bool(on)
     queue = get_queue()
     if queue:
         queue.set_shuffle(st.session_state.shuffle, get_songs(), resolve_audio_path)
 
 
-def cycle_repeat():
-    """The repeat button in the player bar: off, repeat album / playlist / mix, repeat song,
-    autoplay (the default), and round again."""
-    mode = next_repeat_mode(st.session_state.get("repeat", "autoplay"))
+def set_repeat_mode(mode):
+    """Sets the repeat mode (off, all, one or autoplay), for the queue that is playing and
+    for the next ones."""
     st.session_state.repeat = mode
     queue = get_queue()
     if queue:
         queue.set_repeat(mode, get_songs(), resolve_audio_path)
+
+
+def toggle_shuffle():
+    """The shuffle button in the player bar."""
+    set_shuffle_mode(not st.session_state.get("shuffle", False))
+
+
+def cycle_repeat():
+    """The repeat button in the player bar: off, repeat album / playlist / mix, repeat song,
+    autoplay (the default), and round again."""
+    set_repeat_mode(next_repeat_mode(st.session_state.get("repeat", "autoplay")))
 
 
 def get_store():
@@ -318,6 +331,25 @@ def regenerate_playlist(playlist_id):
         st.toast("Made a new mix.")
 
 
+def remove_song_from_mix(playlist_id, song_id):
+    """"Remove from this mix" in a song's "..." menu on an auto mix: the song goes, the
+    others close up, and a fitting new song is added at the end."""
+    store = plib.load_store()
+    if plib.remove_from_mix(store, playlist_id, get_songs(), song_id=song_id):
+        plib.save_store(store)
+        st.toast("Removed it from this mix and added a new song at the end.")
+
+
+def remove_artist_from_mix(playlist_id, artist):
+    """"Remove all by <artist>" on an auto mix: every song by them goes, and fitting new
+    songs by other artists are added at the end."""
+    store = plib.load_store()
+    count = plib.remove_from_mix(store, playlist_id, get_songs(), artist=artist)
+    plib.save_store(store)
+    if count:
+        st.toast(f"Removed {count} song{'s' if count != 1 else ''} by {artist} from this mix.")
+
+
 def open_edit(playlist_id):
     """The Edit pill on one of your playlists: open the editor, filled with that
     playlist's name and songs. Back (or saving) returns to the playlist's page."""
@@ -461,7 +493,14 @@ def web_fragment(name):
     return "\n".join(parts)
 
 
-st.set_page_config(page_title="Legally Distinct-ify", page_icon=":material/headphones:", layout="wide")
+def brand_name_html():
+    """APP_NAME for the logo: everything from the first hyphen on is drawn in the accent
+    colour (so "Legally Distinct-ify" shows as "Legally Distinct" + "-ify"); a name without a hyphen is plain."""
+    head, dash, tail = APP_NAME.partition("-")
+    return f"{escape(head)}<span>{escape(dash + tail)}</span>" if dash else escape(APP_NAME)
+
+
+st.set_page_config(page_title=APP_NAME, page_icon=":material/headphones:", layout="wide")
 
 # The page styling lives in style.css, next to this file.
 ICON_DIR = Path(__file__).parent / "assets" / "icons"  # the .svg icons
@@ -507,7 +546,7 @@ with st.container(key="top_bar"):
     brand_col, home_col, search_col, profile_col = st.columns([1, 1, 2, 1], vertical_alignment="center")
     with brand_col:
         st.markdown(
-            f'<div class="brand">{icon_markup("brand")}Legally Distinct<span>-ify</span></div>',
+            f'<div class="brand">{icon_markup("brand")}{brand_name_html()}</div>',
             unsafe_allow_html=True,
         )
         # Clicking the logo does the same as the home button beside it.
@@ -794,14 +833,15 @@ def render_view_header(
 
 def render_track_list(
     rows, show_album, playlist_id=None, queue_positions=None, header=True, tag=None,
-    collection=None,
+    collection=None, mix_id=None,
 ):
     """rows is a list of (song, note); note is small text under the title or None.
     playlist_id: when the rows are a playlist, playing a row queues that playlist.
     collection: (songs, source_id) when the rows are an album: playing a row queues the
     whole album from that song, like playlist_id does for a playlist.
     queue_positions: when the rows ARE the play queue (one queue index per row), playing
-    a row jumps to it in the queue instead of starting a new one."""
+    a row jumps to it in the queue instead of starting a new one.
+    mix_id: when the rows are an auto mix, each row's menu can remove songs from it."""
     def play_action(row_number, song):
         if queue_positions is not None:
             return {"on_click": jump_queue, "args": (queue_positions[row_number],)}
@@ -887,7 +927,10 @@ def render_track_list(
                 if queue_positions is not None and not playing:  # queued songs can be removed
                     song_menu(f"qvmore_{song['id']}{sfx}", song["id"], f"qrm_v{index}", index)
                 else:
-                    song_menu(f"qvmore_{song['id']}{sfx}", song["id"], playing=playing)
+                    song_menu(
+                        f"qvmore_{song['id']}{sfx}", song["id"], playing=playing,
+                        mix_id=mix_id, artist=song["artist"],
+                    )
             st.button(
                 song["title"], key=f"abtn_song{song['id']}{sfx}", **action,
             )
@@ -1153,7 +1196,10 @@ def render_playlist_view(view):
     st.caption("When the last song ends, similar songs keep playing.")
     start, end = page_bounds(len(rows))
     render_pager(len(rows), "top")
-    render_track_list(rows[start:end], show_album=True, playlist_id=playlist["id"])
+    render_track_list(
+        rows[start:end], show_album=True, playlist_id=playlist["id"],
+        mix_id=playlist["id"] if playlist["kind"] == "auto" else None,
+    )
     render_pager(len(rows), "bottom")
 
 
@@ -1545,6 +1591,8 @@ def agent_context():
         start_playback=play_song,
         start_album=play_album,
         start_playlist=play_playlist,
+        set_repeat=set_repeat_mode,
+        set_shuffle=set_shuffle_mode,
     )
 
 
@@ -1576,7 +1624,8 @@ def start_next_agent_job():
                 f"I can't use {label} right now: {problem}. You can pick another one in Settings.",
                 [], ok=False,
             )
-        return MusicAgent(client, context).run(text, history, cancelled)
+        trace = TRACE_PATH if choice.startswith(llm_client.OLLAMA_PREFIX) else None
+        return MusicAgent(client, context, trace_path=trace).run(text, history, cancelled)
 
     ctx = get_script_run_ctx()
     st.session_state.agent_job = AgentJob(work).start(
@@ -1679,12 +1728,14 @@ PANEL_TOGGLE_JS = web_fragment("panel_toggle")
 MAX_QUEUE_ROWS = 100  # up-next rows drawn in the queue panel
 
 
-def song_menu(menu_key, song_id, remove_key=None, remove_index=None, playing=False):
+def song_menu(menu_key, song_id, remove_key=None, remove_index=None, playing=False,
+              mix_id=None, artist=None):
     """The "..." button at the right of a song. Its menu offers "Play Next" (right after
     the current song), "Add to Queue" (at the very end), "Create a mix with this song" and,
     for a queued song (give remove_key and remove_index), a red Remove that takes it out of
     the queue. The song playing now is already playing, so it has no Play Next or Add to
-    Queue."""
+    Queue. For a song in an auto mix (give mix_id and artist) it also offers removing the
+    song, or all of the artist's songs, from that mix."""
     with st.popover("⋯", key=menu_key):
         if not playing:
             st.button(
@@ -1699,6 +1750,15 @@ def song_menu(menu_key, song_id, remove_key=None, remove_index=None, playing=Fal
         )
         if remove_key is not None:
             st.button("Remove", key=remove_key, on_click=remove_from_queue, args=(remove_index,))
+        if mix_id is not None:
+            st.button(
+                "Remove from this mix", key=f"mrm_{menu_key}",
+                on_click=remove_song_from_mix, args=(mix_id, song_id),
+            )
+            st.button(
+                f"Remove all by {artist}", key=f"mrma_{menu_key}",
+                on_click=remove_artist_from_mix, args=(mix_id, artist),
+            )
 
 
 def render_queue_panel():

@@ -19,6 +19,7 @@ can answer with a safe message instead of crashing the chat.
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -58,6 +59,7 @@ class LLMResponse:
     text: str = ""
     tool_calls: List[ToolCall] = field(default_factory=list)
     error: Optional[str] = None
+    thinking: str = ""  # the model's reasoning trace, when it gives one (never shown to the listener)
 
 
 class MockClient:
@@ -225,12 +227,18 @@ class OllamaClient:
 
     def chat(self, messages: List[Dict], tools: Optional[List[Dict]] = None) -> LLMResponse:
         try:
-            response = self.client.chat(
+            kwargs = dict(
                 model=self.model_name,
                 messages=self._messages(messages),
                 tools=tools or None,
                 options={"temperature": self.temperature},
             )
+            try:
+                response = self.client.chat(think=True, **kwargs)
+            except Exception as exc:
+                if "think" not in str(exc).lower():
+                    raise
+                response = self.client.chat(**kwargs)  # model has no thinking mode
             message = response["message"]
             calls = []
             for call in message.get("tool_calls") or []:
@@ -241,7 +249,12 @@ class OllamaClient:
                     except ValueError:
                         arguments = {}
                 calls.append(ToolCall(call["function"]["name"], dict(arguments or {})))
-            return LLMResponse(text=(message.get("content") or "").strip(), tool_calls=calls)
+            content = message.get("content") or ""
+            thinking = (message.get("thinking") or "").strip()
+            inline = re.findall(r"<think>(.*?)</think>", content, flags=re.DOTALL | re.IGNORECASE)
+            if inline:  # some models put the reasoning in the text instead
+                thinking = "\n\n".join([t for t in [thinking, *(i.strip() for i in inline)] if t])
+            return LLMResponse(text=content.strip(), tool_calls=calls, thinking=thinking)
         except Exception as exc:  # server down, model missing, model without tool support...
             return LLMResponse(error=f"{type(exc).__name__}: {exc}")
 

@@ -31,12 +31,12 @@ from typing import Any, Callable, Dict, List, Optional, Union, get_args, get_ori
 try:
     import playlists as plib
     import search
-    from play_queue import PlayQueue
+    from play_queue import PlayQueue, REPEAT_MODES
     from recommender import song_key
 except ImportError:  # imported as part of the "src" package (tests)
     from src import playlists as plib
     from src import search
-    from src.play_queue import PlayQueue
+    from src.play_queue import PlayQueue, REPEAT_MODES
     from src.recommender import song_key
 
 MAX_RESULTS = 25  # most songs one tool call returns, so a reply stays small for the model
@@ -58,6 +58,9 @@ class AgentContext:
     start_album:    plays an album by name, from track 1 (app.play_album)
     start_playlist: plays a playlist by id, from its first playable song (app.play_playlist)
                  (each of these is None when the app cannot start playback that way)
+    set_repeat:  sets the repeat mode for the playing queue and the next ones (app.set_repeat_mode)
+    set_shuffle: turns shuffle on or off the same way (app.set_shuffle_mode)
+                 (when None, the tools change only the queue that is playing)
     """
 
     songs: List[Dict]
@@ -68,6 +71,8 @@ class AgentContext:
     start_playback: Optional[Callable[[int], None]] = None
     start_album: Optional[Callable[[str], None]] = None
     start_playlist: Optional[Callable[[str], None]] = None
+    set_repeat: Optional[Callable[[str], None]] = None
+    set_shuffle: Optional[Callable[[bool], None]] = None
 
     def song(self, song_id: int) -> Optional[Dict]:
         return next((s for s in self.songs if s["id"] == song_id), None)
@@ -199,7 +204,7 @@ TOOLS: Dict[str, Tool] = {}  # every tool, by name, in the order they are define
 # changes a playlist): the agent uses the difference to tell a reply that claims an
 # action from one the tools actually backed up.
 READ_ONLY_TOOLS = frozenset({
-    "find_song", "find_album", "find_songs_by_feel", "list_genres_and_moods", "read_song",
+    "find_song", "search_songs", "find_album", "find_songs_by_feel", "list_genres_and_moods", "read_song",
     "list_playlists", "read_playlist", "find_index", "read_queue",
 })
 
@@ -311,7 +316,9 @@ def find_song(
 ) -> Dict:
     """Searches the library for songs and returns their ids. Give at least one of the
     filters; the more you give, the fewer (better) results. The same song can exist on
-    several albums with different ids, so check the album when it matters. Always use
+    several albums with different ids, so check the album when it matters. It matches
+    text anywhere (and falls back to fuzzy matching), so for "starts with", "ends with" or
+    year ranges use search_songs instead. Always use
     this to get a song_id; never guess one.
     Args:
         title: part of the song title, e.g. "hello"
@@ -351,6 +358,146 @@ def find_song(
         result["note"] = f"Only the first {MAX_RESULTS} of {len(found)} are shown; narrow the search."
     if fuzzy:
         result["note"] = "No exact match; these are the closest matches."
+    return result
+
+
+def _text_of(song: Dict, field: str) -> str:
+    return str(song.get(field) or "")
+
+
+def _starts(text: str, prefix: str) -> bool:
+    """Whether text starts with prefix, ignoring case and any punctuation in front, so
+    "'Til Tuesday" and "(Don't Fear) The Reaper" start with T and D."""
+    return text.lower().lstrip(_NOT_ALNUM).startswith(prefix.strip().lower().lstrip(_NOT_ALNUM))
+
+
+_NOT_ALNUM = "".join(chr(c) for c in range(128) if not chr(c).isalnum())
+
+
+@tool
+def search_songs(
+    ctx: AgentContext,
+    title_starts_with: Optional[str] = None,
+    title_ends_with: Optional[str] = None,
+    title_contains: Optional[str] = None,
+    title_regex: Optional[str] = None,
+    artist_starts_with: Optional[str] = None,
+    artist_contains: Optional[str] = None,
+    album_starts_with: Optional[str] = None,
+    album_contains: Optional[str] = None,
+    genre: Optional[str] = None,
+    mood: Optional[str] = None,
+    min_year: Optional[int] = None,
+    max_year: Optional[int] = None,
+    sort_by: str = "title",
+    limit: int = 10,
+    offset: int = 0,
+    playable_only: bool = True,
+) -> Dict:
+    """A precise search of the library, for requests find_song cannot express: songs whose
+    title STARTS with a letter or word ("a song that starts with Q"), ends with one, an
+    artist whose name starts with a letter, a range of years ("from the 80s"), and any mix
+    of these. Every filter given has to match (case ignored). Unlike find_song there is no
+    fuzzy fallback: an empty result means nothing matches. One copy of each song is
+    returned. Starts-with ignores punctuation in front of the text, so "'Til Tuesday"
+    starts with T, but a leading "The" counts ("The Reaper" starts with T, not R).
+    Args:
+        title_starts_with: what the title begins with, a letter or more, e.g. "q" or "love"
+        title_ends_with: what the title ends with
+        title_contains: text anywhere in the title
+        title_regex: a regular expression the title must match, for anything else, e.g. "^\\w+$" for one-word titles
+        artist_starts_with: what the artist's name begins with
+        artist_contains: text anywhere in the artist's name
+        album_starts_with: what the album's name begins with
+        album_contains: text anywhere in the album's name
+        genre: part of a genre name, e.g. "rock" also finds "alternative rock"
+        mood: an exact mood (see list_genres_and_moods)
+        min_year: earliest release year
+        max_year: latest release year (1989 with min_year 1980 for "the 80s")
+        sort_by: "title" (the default), "artist", "year", "newest" or "random"
+        limit: how many songs to return, up to 25
+        offset: how many matches to skip, to see the next page of a long result
+        playable_only: leave out songs with no audio file (default true)
+    """
+    filters = [title_starts_with, title_ends_with, title_contains, title_regex, artist_starts_with,
+               artist_contains, album_starts_with, album_contains, genre, mood, min_year, max_year]
+    if all(f in (None, "") for f in filters):
+        return _error("Give at least one filter, e.g. title_starts_with or artist_starts_with.")
+    sorts = ("title", "artist", "year", "newest", "random")
+    if sort_by not in sorts:
+        return _error(f"sort_by must be one of {list(sorts)}.")
+    if min_year is not None and max_year is not None and min_year > max_year:
+        return _error("min_year is higher than max_year, so nothing can match.")
+    pattern = None
+    if title_regex:
+        try:
+            pattern = re.compile(title_regex, re.IGNORECASE)
+        except re.error as problem:
+            return _error(f"title_regex is not a valid regular expression: {problem}.")
+
+    def year(song: Dict) -> int:
+        try:
+            return int(float(song.get("release_year") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    def fits(song: Dict) -> bool:
+        title, artist = _text_of(song, "title"), _text_of(song, "artist")
+        album = _text_of(song, "album") or _text_of(song, "genre").title()
+        if playable_only and not ctx.playable(song):
+            return False
+        if title_starts_with and not _starts(title, title_starts_with):
+            return False
+        if title_ends_with and not title.strip().lower().rstrip(_NOT_ALNUM).endswith(
+                title_ends_with.strip().lower().rstrip(_NOT_ALNUM)):
+            return False
+        if title_contains and title_contains.strip().lower() not in title.lower():
+            return False
+        if pattern and not pattern.search(title):
+            return False
+        if artist_starts_with and not _starts(artist, artist_starts_with):
+            return False
+        if artist_contains and artist_contains.strip().lower() not in artist.lower():
+            return False
+        if album_starts_with and not _starts(album, album_starts_with):
+            return False
+        if album_contains and album_contains.strip().lower() not in album.lower():
+            return False
+        if genre and _norm(genre) not in _norm(song.get("genre") or ""):
+            return False
+        if mood and not _same(mood, song.get("mood") or ""):
+            return False
+        if min_year is not None or max_year is not None:
+            y = year(song)
+            if not y or (min_year is not None and y < min_year) or (max_year is not None and y > max_year):
+                return False
+        return True
+
+    found, seen = [], set()
+    for song in ctx.songs:  # one copy of each song (the same song can be on several albums)
+        if fits(song) and song_key(song) not in seen:
+            seen.add(song_key(song))
+            found.append(song)
+    if sort_by == "random":
+        random.shuffle(found)
+    else:
+        keys = {
+            "title": lambda s: (s["title"].lower(), s["artist"].lower()),
+            "artist": lambda s: (s["artist"].lower(), s["title"].lower()),
+            "year": lambda s: (year(s) or 9999, s["title"].lower()),
+            "newest": lambda s: (-year(s), s["title"].lower()),
+        }
+        found.sort(key=keys[sort_by])
+    start = max(0, offset)
+    shown = found[start:start + max(1, min(limit, MAX_RESULTS))]
+    result = {
+        "ok": True,
+        "count": len(found),
+        "songs": [dict(_brief(s), release_year=s.get("release_year")) for s in shown],
+    }
+    if start + len(shown) < len(found):
+        result["note"] = (f"Showing {start + 1}-{start + len(shown)} of {len(found)}; "
+                          f"use offset={start + len(shown)} for more, or add filters.")
     return result
 
 
@@ -751,6 +898,50 @@ def remove_artist_from_playlist(ctx: AgentContext, artist: str, playlist_id: str
 
 
 @tool
+def remove_song_from_mix(ctx: AgentContext, song_id: int, playlist_id: str) -> Dict:
+    """Removes a song from an auto-generated mix. The other songs close up, and a new
+    song that fits the mix is added at the end. Only works on mixes (kind "auto"); use
+    remove_song_from_playlist for the listener's own playlists.
+    Args:
+        song_id: the id of the song
+        playlist_id: the id of the mix
+    """
+    store = ctx.load_store()
+    mix, problem = _playlist(ctx, store, playlist_id)
+    if problem:
+        return problem
+    if mix.get("kind") != "auto":
+        return _error(f'"{mix["name"]}" is not a mix. Use remove_song_from_playlist for it.')
+    if not plib.remove_from_mix(store, playlist_id, ctx.songs, song_id=song_id):
+        return _error(f'Song {song_id} is not in "{mix["name"]}".')
+    ctx.save_store(store)
+    return {"ok": True, "mix": mix["name"], "song_count": len(mix["song_ids"])}
+
+
+@tool
+def remove_artist_from_mix(ctx: AgentContext, artist: str, playlist_id: str) -> Dict:
+    """Removes every song by an artist from an auto-generated mix. The other songs close
+    up, and new songs that fit the mix (by other artists) are added at the end. The artist
+    name must match exactly (ignoring case). Only works on mixes (kind "auto").
+    Args:
+        artist: the artist's name
+        playlist_id: the id of the mix
+    """
+    store = ctx.load_store()
+    mix, problem = _playlist(ctx, store, playlist_id)
+    if problem:
+        return problem
+    if mix.get("kind") != "auto":
+        return _error(f'"{mix["name"]}" is not a mix. Use remove_artist_from_playlist for it.')
+    names = {ctx.song(i)["artist"] for i in mix["song_ids"] if ctx.song(i) and _same(ctx.song(i)["artist"], artist)}
+    if not names:
+        return _error(f'No songs by "{artist}" in "{mix["name"]}".')
+    removed = plib.remove_from_mix(store, playlist_id, ctx.songs, artist=next(iter(names)))
+    ctx.save_store(store)
+    return {"ok": True, "mix": mix["name"], "removed": removed, "song_count": len(mix["song_ids"])}
+
+
+@tool
 def move_song_in_playlist(ctx: AgentContext, song_id: int, playlist_id: str, position: int) -> Dict:
     """Moves a song to a new 1-based position in one of the listener's own playlists
     (1 = first). The songs around it shift to fill the gap; a position past the end
@@ -956,6 +1147,55 @@ def remove_artist_from_queue(ctx: AgentContext, artist: str) -> Dict:
         queue.remove(index)
     queue.top_up(ctx.songs, ctx.playable)
     return {"ok": True, "removed": len(indexes)}
+
+
+# What the listener says for each repeat mode, mapped onto the queue's modes
+_REPEAT_NAMES = {
+    "off": "off", "none": "off", "no repeat": "off",
+    "all": "all", "repeat": "all", "playlist": "all", "album": "all", "mix": "all",
+    "one": "one", "song": "one", "repeat song": "one", "track": "one",
+    "autoplay": "autoplay", "auto": "autoplay",
+}
+
+
+@tool
+def set_play_mode(ctx: AgentContext, mode: str) -> Dict:
+    """Changes what happens when the songs in up next run out (the repeat button). It
+    applies to what is playing now and to anything played afterwards.
+    Args:
+        mode: "off" (just stop after the last song), "all" (repeat the album, playlist or
+              mix), "one" (repeat the current song) or "autoplay" (keep going with
+              recommended songs, the default)
+    """
+    key = _REPEAT_NAMES.get(str(mode).strip().lower())
+    if key is None:
+        return _error(f'Unknown mode "{mode}". Use one of: {", ".join(REPEAT_MODES)}.')
+    if ctx.set_repeat is not None:
+        ctx.set_repeat(key)
+    else:
+        queue, problem = _active_queue(ctx)
+        if problem:
+            return problem
+        queue.set_repeat(key, ctx.songs, ctx.playable)
+    return {"ok": True, "repeat": key}
+
+
+@tool
+def set_shuffle(ctx: AgentContext, on: bool) -> Dict:
+    """Turns shuffle on or off. On, the rest of the album, playlist or mix that is playing
+    continues in a random order (the current song keeps playing); off, in its own order
+    again. It applies to anything played afterwards too.
+    Args:
+        on: true for shuffle on, false for off
+    """
+    if ctx.set_shuffle is not None:
+        ctx.set_shuffle(bool(on))
+    else:
+        queue, problem = _active_queue(ctx)
+        if problem:
+            return problem
+        queue.set_shuffle(bool(on), ctx.songs, ctx.playable)
+    return {"ok": True, "shuffle": bool(on)}
 
 
 @tool

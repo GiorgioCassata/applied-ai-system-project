@@ -8,7 +8,8 @@ EXPECTED_TOOLS = {
     "find_song", "read_song", "list_playlists", "read_playlist", "find_index",
     "create_playlist", "save_mix_as_playlist", "regenerate_mix", "delete_playlist",
     "rename_playlist", "add_song_to_playlist", "remove_song_from_playlist",
-    "remove_artist_from_playlist", "move_song_in_playlist", "read_queue",
+    "search_songs", "set_play_mode", "set_shuffle", "remove_artist_from_playlist", "remove_song_from_mix", "remove_artist_from_mix",
+    "move_song_in_playlist", "read_queue",
     "find_songs_by_feel", "list_genres_and_moods", "find_album", "play_album", "play_playlist", "play_song", "add_song_to_queue", "play_song_next", "remove_song_from_queue",
     "remove_artist_from_queue", "move_song_in_queue",
 }

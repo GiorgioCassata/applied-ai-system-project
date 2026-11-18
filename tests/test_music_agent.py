@@ -45,7 +45,7 @@ def test_the_model_gets_the_system_prompt_the_message_and_the_tools(ctx):
 
 def test_the_default_prompt_is_loaded_from_the_prompts_folder(ctx):
     agent = MusicAgent(MockClient(), ctx)
-    assert "Wabi-Sabi" in agent.system_prompt
+    assert "Pulse" in agent.system_prompt
 
 
 # --- using tools -----------------------------------------------------------------------
@@ -423,9 +423,26 @@ def test_a_claim_after_only_looking_things_up_is_challenged(ctx):
     assert len(client.calls) == 3 and result.reply == "I found it but have not queued it."
 
 
-def test_plain_answers_and_lookups_are_never_challenged(ctx):
-    agent, client = make_agent(ctx, ["Which song do you mean?"])
+def test_a_question_before_trying_gets_one_push_and_then_stands(ctx):
+    # asking first is pushed once (try before asking); if the model still asks, that stands
+    agent, client = make_agent(ctx, ["Which song do you mean?", "Which song do you mean?"])
     assert agent.run("play something").reply == "Which song do you mean?"
+    assert len(client.calls) == 2 and client.calls[1][-1]["content"] == ma.PUSH
+
+
+def test_a_push_can_turn_a_question_into_a_lookup(ctx):
+    agent, client = make_agent(
+        ctx, ["Which song do you mean?", call("find_song", title="song 5"), "Song 5 is by Artist 1."]
+    )
+    result = agent.run("play something")
+    assert result.reply == "Song 5 is by Artist 1." and len(client.calls) == 3
+    assert not any(m.get("content") == ma.PUSH for m in result.messages)  # the note is not kept
+
+
+def test_plain_answers_and_lookups_are_never_challenged(ctx):
+    agent, client = make_agent(ctx, ["Sure, here you go."])
+    assert agent.run("play something").reply == "Sure, here you go."
+    assert len(client.calls) == 1
     agent, client = make_agent(ctx, [call("find_song", title="song 5"), "Song 5 is by Artist 1."])
     assert agent.run("who sings song 5").reply == "Song 5 is by Artist 1."
     assert len(client.calls) == 2
