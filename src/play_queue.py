@@ -303,6 +303,22 @@ class PlayQueue:
         self._insert(self.pos + 1, song_id, MANUAL)
         return True
 
+    def move_up_next(self, song_id: int, position: int) -> bool:
+        """Moves the song (its first copy in up next) to `position` in up next, counting
+        from 1 (1 = plays next); a position past the end puts it last. The songs around
+        it shift to fill the gap. The move is the listener's choice, so the song is kept
+        when shuffle or repeat change. Returns False if the song is not in up next."""
+        index = next(
+            (i for i in range(self.pos + 1, len(self.songs)) if self.songs[i] == song_id), None
+        )
+        if index is None:
+            return False
+        del self.songs[index]
+        del self.origin[index]
+        offset = max(0, min(position - 1, len(self.up_next)))
+        self._insert(self.pos + 1 + offset, song_id, MANUAL)
+        return True
+
     def add(self, song_id: int) -> bool:
         """Adds the song at the very end of the queue (a song already in it is moved
         there). Returns False for the song that is playing now. Songs added later to keep

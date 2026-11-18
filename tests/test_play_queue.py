@@ -274,3 +274,20 @@ def test_shuffle_with_repeat_all_shuffles_every_pass():
     first_pass, second_pass = queue.songs[:8], queue.songs[8:16]
     assert sorted(first_pass) == sorted(ids) and first_pass[0] == ids[0]
     assert sorted(second_pass) == sorted(ids)  # the next pass has every song again
+
+
+def test_move_up_next_moves_a_song_and_keeps_it_through_shuffle():
+    queue = PlayQueue([1, 2, 3, 4, 5], 0, repeat="off")
+    assert queue.move_up_next(5, 1) and queue.up_next == [5, 2, 3, 4]
+    assert queue.move_up_next(5, 99) and queue.up_next == [2, 3, 4, 5]  # past the end: last
+    assert queue.move_up_next(4, 0) and queue.up_next == [4, 2, 3, 5]  # before the start: first
+    assert queue.origin[queue.songs.index(4)] == "manual"  # the listener's choice
+    assert queue.current_id == 1 and len(queue.origin) == len(queue.songs)
+
+
+def test_move_up_next_only_moves_songs_that_are_up_next():
+    queue = PlayQueue([1, 2, 3], 1, repeat="off")
+    assert not queue.move_up_next(1, 1)  # history
+    assert not queue.move_up_next(2, 1)  # playing now
+    assert not queue.move_up_next(99, 1)  # not queued
+    assert queue.songs == [1, 2, 3]

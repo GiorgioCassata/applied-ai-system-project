@@ -582,19 +582,24 @@ html[data-right-panel="chat"] [class*="st-key-chat_panel"] {
     height: auto !important; width: auto !important; min-height: 0 !important;
     flex: none !important;
 }
-/* Chat: the message list has a fixed height that leaves room at the bottom, and the
-   message box is pinned to the panel's bottom edge (absolute positioning, so it can
-   never be pushed under the player bar). A long message makes the box grow upward
-   over the bottom of the list. */
+/* Chat: the message list is pinned to the panel like the queue list is: it starts below
+   the heading and runs down to just above the message box (which is pinned to the
+   panel's bottom edge, so it can never be pushed under the player bar). Absolute
+   positioning because Streamlit gives the list a fixed layout size (a 400px height) that
+   a plain height rule cannot override. A long message makes the box grow upward over the
+   bottom of the list. */
 [class*="st-key-chat_list"] {
-    height: calc(100vh - var(--player-h) - var(--top-h) - 7.5rem) !important;
+    position: absolute !important; top: 3.25rem; left: 1rem; right: 1rem; bottom: 4.25rem;
+    height: auto !important; width: auto !important; min-height: 0 !important;
+    flex: none !important;
 }
 [class*="st-key-chat_text"] {
     position: absolute !important; left: 1rem; right: 1rem; bottom: 0.75rem; z-index: 2;
     width: auto !important; margin: 0 !important;
 }
 [class*="st-key-chat_text"] [data-testid="stChatInput"] { border-radius: 18px; }
-/* "+" (start new chat) at the right end of the chat header: icon only, no fill */
+/* Circular arrow, like a browser's refresh (start new chat), at the right end of the chat
+   header: icon only, no fill */
 [class*="st-key-chat_new"] { display: flex; justify-content: flex-end; }
 /* The icon is drawn here as a CSS mask (Streamlit's own icon would not resize, as with
    the play button): 25px, */
@@ -608,8 +613,8 @@ html[data-right-panel="chat"] [class*="st-key-chat_panel"] {
 }
 [class*="st-key-chat_new"] button::before {
     content: ""; width: 25px; height: 25px; background: #b3b3b3;
-    -webkit-mask: url("assets/icons/plus.svg") center / contain no-repeat;
-    mask: url("assets/icons/plus.svg") center / contain no-repeat;
+    -webkit-mask: url("assets/icons/refresh.svg") center / contain no-repeat;
+    mask: url("assets/icons/refresh.svg") center / contain no-repeat;
 }
 [class*="st-key-chat_new"] button:hover { background: #2a2a2a !important; }
 [class*="st-key-chat_new"] button:hover::before { background: #fff; }

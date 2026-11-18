@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import re
 import shutil
@@ -6,12 +7,17 @@ from html import escape
 from pathlib import Path
 
 import streamlit as st
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from play_queue import PlayQueue, next_repeat_mode
+import agent_settings
+import agent_tools
+import llm_client
 import playlists as plib
 import search
 import user_profile as uprofile
 from album_art import ART_DIR, ART_URL_PREFIX, art_jpeg_bytes, resolve_audio_path
+from music_agent import AgentJob, AgentResult, MusicAgent
 from recommender import Recommender, Song, UserProfile, load_songs
 
 SONGS_PATH = Path(__file__).resolve().parent.parent / "data" / "songs.csv"
@@ -1503,18 +1509,94 @@ def render_playlist_editor(playlist_id=None):
 
 def send_chat():
     """Called when a message is submitted (Enter, or the send button). Empty or
-    whitespace-only messages are ignored. Messages live in the session only."""
+    whitespace-only messages are ignored. The message is shown at once and queued for the
+    agent (see start_next_agent_job), so the bubble does not wait for the model; a message
+    sent while the agent is still busy waits its turn. Messages live in the session only."""
     text = (st.session_state.get("chat_text") or "").strip()
     if not text:
         return
     st.session_state.setdefault("chat_messages", []).append(
         {"role": "user", "text": text}
     )
+    st.session_state.setdefault("chat_pending", []).append(text)
 
 
 def reset_chat():
-    """The + button in the chat header: throws away the conversation so far."""
+    """The refresh button in the chat header: throws away the conversation so far (what is
+    shown, and what the agent remembers of it). An agent still working is told to stop
+    at its next step; what it has already done stays done."""
+    job = st.session_state.pop("agent_job", None)
+    if job is not None:
+        job.cancel()
     st.session_state.chat_messages = []
+    st.session_state.agent_history = []
+    st.session_state.chat_pending = []
+
+
+def agent_context():
+    """What the agent's tools work on: the library, the play queue and the playlists, the
+    same ones the buttons in the app use."""
+    return agent_tools.AgentContext(
+        songs=get_songs(),
+        get_queue=get_queue,
+        playable=resolve_audio_path,
+        load_store=get_store,
+        save_store=plib.save_store,
+        start_playback=play_song,
+        start_album=play_album,
+        start_playlist=play_playlist,
+    )
+
+
+def start_next_agent_job():
+    """If the agent is idle and a chat message is waiting, starts working on it.
+
+    The agent runs on a background thread (see music_agent.AgentJob). Streamlit re-runs the
+    whole page on every click, which would cut an agent running inside the page off half
+    way (say, when you pick a song while it thinks); a thread carries on regardless. It is
+    given the page's session context so the tools can use the play queue and the like.
+
+    Only the agent's final reply is ever shown in the chat. Everything else (the model's
+    tool calls and the tools' results) goes into st.session_state.agent_history, which the
+    agent reads to remember the conversation but the chat panel never draws."""
+    pending = st.session_state.get("chat_pending") or []
+    if st.session_state.get("agent_job") is not None or not pending:
+        return
+    text = pending.pop(0)
+    history = list(st.session_state.get("agent_history", []))
+    context = agent_context()
+    choice = agent_settings.load_settings()["client"]
+
+    def work(cancelled):
+        try:
+            client = llm_client.make_client(choice)
+        except RuntimeError as problem:
+            label = llm_client.CLIENT_CHOICES[choice]
+            return AgentResult(
+                f"I can't use {label} right now: {problem}. You can pick another one in Settings.",
+                [], ok=False,
+            )
+        return MusicAgent(client, context).run(text, history, cancelled)
+
+    ctx = get_script_run_ctx()
+    st.session_state.agent_job = AgentJob(work).start(
+        attach=lambda thread: add_script_run_ctx(thread, ctx)
+    )
+
+
+def finish_agent_job():
+    """Takes the finished agent's reply into the chat. Returns whether there was one."""
+    job = st.session_state.get("agent_job")
+    if job is None or not job.done:
+        return False
+    st.session_state.agent_job = None
+    result = job.result
+    if job.cancelled() or not result.reply:
+        return False  # the chat was reset while it worked: nothing to show
+    if result.ok:  # a failed request leaves no trace in what the agent remembers
+        st.session_state.agent_history = st.session_state.get("agent_history", []) + result.messages
+    st.session_state.setdefault("chat_messages", []).append({"role": "assistant", "text": result.reply})
+    return True
 
 
 def chat_html(messages):
@@ -1533,25 +1615,54 @@ def chat_html(messages):
     return "".join(parts)
 
 
+def draw_chat_conversation():
+    """The conversation and, while the agent works, a "Thinking..." line. When the agent
+    has finished, its reply is added and the whole page is drawn again, since the agent
+    may have changed the queue or the playlists."""
+    if finish_agent_job():
+        st.rerun()  # the whole page, not just this fragment
+    messages = st.session_state.get("chat_messages", [])
+    if messages:
+        st.html(chat_html(messages))
+    else:
+        st.caption("No messages yet.")
+    if st.session_state.get("agent_job") is not None:
+        st.caption("Thinking...")
+
+
+@st.fragment(run_every=1.0)
+def chat_conversation_polling():
+    """The conversation while the agent works: this fragment re-runs by itself every
+    second to look for the agent's reply. Clicks elsewhere re-run the page but do not
+    stop the agent (it is on its own thread) or this timer."""
+    draw_chat_conversation()
+
+
+@st.fragment
+def chat_conversation_idle():
+    """The conversation when no agent is working: nothing to check on."""
+    draw_chat_conversation()
+
+
 def render_chat_panel():
     """Right-hand chat panel: the conversation from the top (oldest first), and a
-    message box at the bottom. Enter sends, Shift+Enter starts a new line. Only user
-    messages exist so far; system replies will use the same bubbles (white, left).
+    message box at the bottom. Enter sends, Shift+Enter starts a new line. The agent's
+    replies are the white bubbles on the left; its tool calls and reasoning are not shown.
 
     It is built on every run and shown or hidden by CSS (see the right-hand panels CSS),
     which is what makes opening it instant and keeps a half-typed message."""
-    messages = st.session_state.get("chat_messages", [])
+    start_next_agent_job()
     with st.container(key="chat_panel"):
         title_col, new_col = st.columns([5, 1], vertical_alignment="center")
         title_col.markdown("### :material/chat_bubble: Chat")
         new_col.button(
-            ":material/add:", key="chat_new", on_click=reset_chat, help="Start new chat"
+            ":material/refresh:", key="chat_new", on_click=reset_chat, help="Start new chat"
         )
         with st.container(height=400, border=False, key="chat_list"):
-            if messages:
-                st.html(chat_html(messages))
+            if st.session_state.get("agent_job") is not None:
+                chat_conversation_polling()
             else:
-                st.caption("No messages yet.")
+                chat_conversation_idle()
         st.chat_input("Type a message", key="chat_text", on_submit=send_chat)
 
 
@@ -1695,7 +1806,8 @@ def render_profile_view():
     preference can be left as "no preference" (Any, or the checkbox beside a slider); those
     features are then ignored instead of counting as a middle value."""
     st.button(":material/arrow_back: Back", key="view_back", on_click=go_back)
-    st.title("Your Profile")
+    st.title("Settings")
+    st.header("Your Profile")
     saved = uprofile.load_profile()  # None: never saved; {}: saved with no preference at all
     current = saved or {}
     st.caption(
@@ -1760,6 +1872,29 @@ def render_profile_view():
         picks = get_recommender().recommend(UserProfile.from_prefs(saved), k=5)
         by_id = {s["id"]: s for s in songs}  # the page's rows need the full library entries
         render_track_list([(by_id[pick.id], None) for pick in picks], show_album=True)
+
+    render_agent_settings()
+
+
+def render_agent_settings():
+    """"Agent Settings": which LLM the chat agent uses. Picking one in the list changes
+    nothing by itself: the chat keeps using the saved model until "Apply & Save" is
+    pressed, and from then on (from the next chat message) uses the new one."""
+    st.header("Agent Settings")
+    saved = agent_settings.load_settings()["client"]
+    st.session_state.setdefault("agent_client", saved)
+    choice = st.selectbox(
+        "Language model", list(llm_client.CLIENT_CHOICES), key="agent_client",
+        format_func=llm_client.CLIENT_CHOICES.get,
+        help="The model behind the chat. It changes only when you press Apply & Save.",
+    )
+    if choice == "gemini" and not os.getenv("GEMINI_API_KEY", "").strip():
+        st.warning("GEMINI_API_KEY is not set, so Gemini cannot be used yet.")
+    if st.button("Apply & Save", key="agent_apply", type="primary", disabled=choice == saved):
+        agent_settings.save_settings({"client": choice})
+        st.success(f"Saved. The chat now uses {llm_client.CLIENT_CHOICES[choice]}.")
+    else:
+        st.caption(f"The chat is using: {llm_client.CLIENT_CHOICES[saved]}")
 
 
 view = st.session_state.get("view", {"type": "home"})

@@ -6,7 +6,7 @@
   window.__notifyNativeHintsBound = true;
   const HINTS = {
     '.st-key-vmore button': "More",
-    '.st-key-profile_btn button': "Your profile",
+    '.st-key-profile_btn button': "Settings",
     '.st-key-shuffle_off button': "Shuffle: off",
     '.st-key-shuffle_on button': "Shuffle: on",
     '.st-key-repeat_off button': "Repeat: off (nothing plays after the songs)",
